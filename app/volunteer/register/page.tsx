@@ -76,7 +76,6 @@ export default function VolunteerRegisterPage() {
     const phone = normalizePhone(formData.get("phone") as string);
     const name = formData.get("name") as string;
 
-    // Upsert volunteer
     const { data: volunteer, error: volError } = await supabase
       .from("volunteers")
       .upsert(
@@ -98,7 +97,6 @@ export default function VolunteerRegisterPage() {
       return;
     }
 
-    // Create availability records
     for (const driveId of selectedDrives) {
       await supabase
         .from("volunteer_availability")
@@ -112,7 +110,6 @@ export default function VolunteerRegisterPage() {
         );
     }
 
-    // Trigger auto-assignment via API
     const res = await fetch("/api/public/auto-assign", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -139,16 +136,18 @@ export default function VolunteerRegisterPage() {
 
   if (submitted) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/10 via-background to-accent/5 p-4">
         <Card className="w-full max-w-md text-center">
           <CardContent className="pt-8 pb-8 space-y-4">
-            <CheckCircle2 className="mx-auto h-16 w-16 text-green-600" />
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-accent/10">
+              <CheckCircle2 className="h-8 w-8 text-accent" />
+            </div>
             <h2 className="text-2xl font-bold">JazakAllah Khair!</h2>
             <p className="text-muted-foreground">
               You have been registered as a volunteer.
             </p>
             {assignmentInfo && (
-              <div className="mt-4 rounded-md bg-accent p-4 text-left">
+              <div className="mt-4 rounded-md bg-accent/5 border border-accent/20 p-4 text-left">
                 <p className="font-medium mb-2">Your Duty Assignments:</p>
                 <pre className="whitespace-pre-wrap text-sm">
                   {assignmentInfo}
@@ -165,13 +164,18 @@ export default function VolunteerRegisterPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/10 via-background to-accent/5 p-4">
       <Card className="w-full max-w-lg">
         <CardHeader className="text-center">
-          <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground">
-            <Moon className="h-6 w-6" />
+          <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10">
+            <Moon className="h-6 w-6 text-primary" />
           </div>
           <CardTitle className="text-2xl">Grand Citizens</CardTitle>
+          <div className="mx-auto my-2 flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="h-px w-8 bg-border" />
+            Ramadan 2026
+            <span className="h-px w-8 bg-border" />
+          </div>
           <CardDescription>
             Sign up to volunteer for our Iftaar Drives in Karachi
           </CardDescription>
@@ -229,7 +233,7 @@ export default function VolunteerRegisterPage() {
                   {drives.map((drive) => (
                     <label
                       key={drive.id}
-                      className="flex items-center gap-3 rounded-md border p-3 cursor-pointer hover:bg-accent"
+                      className="flex items-center gap-3 rounded-md border p-3 cursor-pointer hover:bg-primary/5 transition-colors has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5"
                     >
                       <Checkbox
                         checked={selectedDrives.includes(drive.id)}
@@ -269,9 +273,13 @@ export default function VolunteerRegisterPage() {
               disabled={loading || selectedDrives.length === 0 || !gender}
             >
               {loading ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : null}
-              Sign Up as Volunteer
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Signing up...
+                </>
+              ) : (
+                "Sign Up as Volunteer"
+              )}
             </Button>
           </form>
         </CardContent>

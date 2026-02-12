@@ -37,6 +37,14 @@ export async function updateSession(request: NextRequest) {
   const { data } = await supabase.auth.getClaims();
   const user = data?.claims;
 
+  // Redirect authenticated users away from login/signup/forgot-password
+  const authOnlyPaths = ["/auth/login", "/auth/sign-up", "/auth/forgot-password"];
+  if (user && authOnlyPaths.some((p) => request.nextUrl.pathname.startsWith(p))) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/drives";
+    return NextResponse.redirect(url);
+  }
+
   const publicPaths = ["/", "/auth", "/volunteer/register"];
   const isPublicPath = publicPaths.some(
     (p) =>

@@ -5,6 +5,9 @@ import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { EmptyState } from "@/components/ui/empty-state";
+import { VolunteersSkeleton } from "@/components/skeletons/volunteers-skeleton";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -22,8 +25,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { formatPhone } from "@/lib/utils";
-import { Search, Plus, Upload, Loader2 } from "lucide-react";
+import { Search, Plus, Upload, Users } from "lucide-react";
 import type { Tables } from "@/lib/supabase/types";
+
+function getInitials(name: string): string {
+  return name
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+}
 
 export default function VolunteersPage() {
   const supabase = createClient();
@@ -59,6 +71,10 @@ export default function VolunteersPage() {
   useEffect(() => {
     loadVolunteers();
   }, [loadVolunteers]);
+
+  if (loading && volunteers.length === 0) {
+    return <VolunteersSkeleton />;
+  }
 
   return (
     <div className="space-y-6">
@@ -128,30 +144,32 @@ export default function VolunteersPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {loading ? (
+            {volunteers.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-8">
-                  <Loader2 className="mx-auto h-6 w-6 animate-spin" />
-                </TableCell>
-              </TableRow>
-            ) : volunteers.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={7}
-                  className="text-center py-8 text-muted-foreground"
-                >
-                  No volunteers found
+                <TableCell colSpan={7} className="p-0">
+                  <EmptyState
+                    icon={Users}
+                    title="No Volunteers Found"
+                    description={search ? "Try a different search term." : "Add your first volunteer to get started."}
+                    actionLabel={!search ? "Add Volunteer" : undefined}
+                    actionHref={!search ? "/volunteers/new" : undefined}
+                  />
                 </TableCell>
               </TableRow>
             ) : (
               volunteers.map((v) => (
-                <TableRow key={v.id}>
+                <TableRow key={v.id} className="group">
                   <TableCell>
                     <Link
                       href={`/volunteers/${v.id}`}
-                      className="font-medium hover:underline"
+                      className="flex items-center gap-2"
                     >
-                      {v.name}
+                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
+                        {getInitials(v.name)}
+                      </div>
+                      <span className="font-medium group-hover:underline">
+                        {v.name}
+                      </span>
                     </Link>
                   </TableCell>
                   <TableCell className="font-mono text-sm">
@@ -168,13 +186,7 @@ export default function VolunteersPage() {
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    {v.is_active ? (
-                      <Badge className="bg-green-100 text-green-800">
-                        Active
-                      </Badge>
-                    ) : (
-                      <Badge variant="secondary">Inactive</Badge>
-                    )}
+                    <StatusBadge status={v.is_active ? "active" : "draft"} />
                   </TableCell>
                 </TableRow>
               ))

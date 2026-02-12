@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -82,13 +84,29 @@ export default function WhatsAppSettingsPage() {
       return;
     }
     toast.info("Requesting QR code from WhatsApp service...");
-    // Would call Railway service to initiate QR flow
   }
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-6 w-6 animate-spin" />
+      <div className="space-y-6">
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-48" />
+          <Skeleton className="h-4 w-72" />
+        </div>
+        <Card>
+          <CardHeader><Skeleton className="h-6 w-40" /></CardHeader>
+          <CardContent><Skeleton className="h-16 w-full" /></CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6"><Skeleton className="h-10 w-full" /></CardContent>
+        </Card>
+        <Card>
+          <CardHeader><Skeleton className="h-6 w-32" /></CardHeader>
+          <CardContent className="space-y-4">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -112,7 +130,7 @@ export default function WhatsAppSettingsPage() {
               <>
                 <Wifi className="h-6 w-6 text-green-500" />
                 <div>
-                  <Badge className="bg-green-100 text-green-800">Connected</Badge>
+                  <StatusBadge status="confirmed" />
                   {session.phone_number && (
                     <p className="text-sm text-muted-foreground mt-1">
                       {session.phone_number}
@@ -124,9 +142,7 @@ export default function WhatsAppSettingsPage() {
               <>
                 <QrCode className="h-6 w-6 text-yellow-500" />
                 <div>
-                  <Badge className="bg-yellow-100 text-yellow-800">
-                    QR Code Ready
-                  </Badge>
+                  <StatusBadge status="in_progress" />
                   {session.qr_code && (
                     <div className="mt-4 rounded-md border p-4 bg-white">
                       <p className="text-sm text-muted-foreground mb-2">
@@ -141,7 +157,7 @@ export default function WhatsAppSettingsPage() {
               <>
                 <WifiOff className="h-6 w-6 text-red-500" />
                 <div>
-                  <Badge variant="destructive">Disconnected</Badge>
+                  <StatusBadge status="cancelled" />
                   <p className="text-sm text-muted-foreground mt-1">
                     Connect via Railway service
                   </p>
@@ -251,8 +267,14 @@ export default function WhatsAppSettingsPage() {
           </Card>
 
           <Button onClick={save} disabled={saving}>
-            {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Save Settings
+            {saving ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              "Save Settings"
+            )}
           </Button>
         </>
       )}

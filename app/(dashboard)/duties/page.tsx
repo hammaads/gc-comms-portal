@@ -8,12 +8,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Card,
   CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
 } from "@/components/ui/card";
 import {
   Dialog,
@@ -32,7 +31,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Plus, GripVertical, Settings2, Loader2 } from "lucide-react";
+import { Plus, GripVertical, Settings2, Loader2, ClipboardList } from "lucide-react";
 import type { Tables } from "@/lib/supabase/types";
 
 export default function DutiesPage() {
@@ -80,7 +79,6 @@ export default function DutiesPage() {
     if (error) {
       toast.error(error.message);
     } else {
-      // Also create default capacity rule
       const { data: newDuty } = await supabase
         .from("duties")
         .select("id")
@@ -113,8 +111,27 @@ export default function DutiesPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-6 w-6 animate-spin" />
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div className="space-y-2">
+            <Skeleton className="h-8 w-24" />
+            <Skeleton className="h-4 w-56" />
+          </div>
+          <Skeleton className="h-10 w-28" />
+        </div>
+        <div className="space-y-2">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i}>
+              <CardContent className="flex items-center justify-between py-4">
+                <div className="flex items-center gap-4">
+                  <Skeleton className="h-4 w-4" />
+                  <Skeleton className="h-4 w-40" />
+                </div>
+                <Skeleton className="h-6 w-20" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       </div>
     );
   }
@@ -167,10 +184,14 @@ export default function DutiesPage() {
               </div>
               <DialogFooter>
                 <Button type="submit" disabled={saving}>
-                  {saving && (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {saving ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    "Create"
                   )}
-                  Create
                 </Button>
               </DialogFooter>
             </form>
@@ -178,45 +199,53 @@ export default function DutiesPage() {
         </Dialog>
       </div>
 
-      <div className="space-y-2">
-        {duties.map((duty) => (
-          <Card
-            key={duty.id}
-            className={!duty.is_active ? "opacity-50" : undefined}
-          >
-            <CardContent className="flex items-center justify-between py-4">
-              <div className="flex items-center gap-4">
-                <GripVertical className="h-4 w-4 text-muted-foreground" />
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">{duty.name}</span>
-                    <Badge variant="outline" className="text-xs">
-                      {duty.slug}
-                    </Badge>
-                    {duty.gender_restriction && (
-                      <Badge variant="secondary" className="text-xs">
-                        {duty.gender_restriction} only
+      {duties.length === 0 ? (
+        <EmptyState
+          icon={ClipboardList}
+          title="No Duties"
+          description="Add duty types to start assigning volunteers to roles."
+        />
+      ) : (
+        <div className="space-y-2">
+          {duties.map((duty) => (
+            <Card
+              key={duty.id}
+              className={!duty.is_active ? "opacity-50" : undefined}
+            >
+              <CardContent className="flex items-center justify-between py-4">
+                <div className="flex items-center gap-4">
+                  <GripVertical className="h-4 w-4 text-muted-foreground" />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{duty.name}</span>
+                      <Badge variant="outline" className="text-xs">
+                        {duty.slug}
                       </Badge>
-                    )}
+                      {duty.gender_restriction && (
+                        <Badge variant="secondary" className="text-xs">
+                          {duty.gender_restriction} only
+                        </Badge>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <Link href={`/duties/${duty.id}/rules`}>
-                  <Button variant="ghost" size="sm">
-                    <Settings2 className="mr-1 h-4 w-4" />
-                    Rules
-                  </Button>
-                </Link>
-                <Switch
-                  checked={duty.is_active}
-                  onCheckedChange={() => toggleActive(duty)}
-                />
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+                <div className="flex items-center gap-3">
+                  <Link href={`/duties/${duty.id}/rules`}>
+                    <Button variant="ghost" size="sm">
+                      <Settings2 className="mr-1 h-4 w-4" />
+                      Rules
+                    </Button>
+                  </Link>
+                  <Switch
+                    checked={duty.is_active}
+                    onCheckedChange={() => toggleActive(duty)}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

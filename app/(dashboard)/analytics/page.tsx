@@ -3,7 +3,9 @@
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, Users, CalendarDays, Utensils, Award } from "lucide-react";
+import { AnimatedCounter } from "@/components/ui/animated-counter";
+import { AnalyticsSkeleton } from "@/components/skeletons/analytics-skeleton";
+import { Users, CalendarDays, Utensils, Award, Trophy } from "lucide-react";
 import {
   BarChart,
   Bar,
@@ -15,18 +17,31 @@ import {
   Pie,
   Cell,
   ResponsiveContainer,
-  Legend,
 } from "recharts";
 
+// Resolved hex values for recharts SVG compatibility
 const COLORS = [
-  "#2563eb",
-  "#16a34a",
-  "#ea580c",
-  "#9333ea",
-  "#e11d48",
-  "#0891b2",
-  "#ca8a04",
-  "#6366f1",
+  "#c28519", // gold/primary
+  "#1a8a5c", // emerald/accent
+  "#d97706", // amber
+  "#2b7ab5", // blue
+  "#c93d6e", // rose
+  "#0891b2", // cyan
+  "#ca8a04", // yellow
+  "#6366f1", // indigo
+];
+
+const STAT_ICONS = [
+  { icon: Users, color: "bg-primary/10 text-primary" },
+  { icon: CalendarDays, color: "bg-amber-500/10 text-amber-600" },
+  { icon: Utensils, color: "bg-accent/10 text-accent" },
+  { icon: Award, color: "bg-blue-500/10 text-blue-600" },
+];
+
+const MEDAL_STYLES = [
+  "bg-amber-100 text-amber-700 border-amber-300",
+  "bg-gray-100 text-gray-600 border-gray-300",
+  "bg-orange-100 text-orange-700 border-orange-300",
 ];
 
 export default function AnalyticsPage() {
@@ -71,7 +86,6 @@ export default function AnalyticsPage() {
         assignRes.data?.filter((a) => a.status === "completed").length || 0,
     });
 
-    // Duty distribution
     const dutyCount: Record<string, number> = {};
     assignRes.data?.forEach((a) => {
       const name = (a.duties as any)?.name || "Unknown";
@@ -81,7 +95,6 @@ export default function AnalyticsPage() {
       Object.entries(dutyCount).map(([name, value]) => ({ name, value })),
     );
 
-    // Per-drive volunteer count
     const driveCount: Record<string, { name: string; count: number }> = {};
     assignRes.data?.forEach((a) => {
       const driveName = (a.drives as any)?.name || a.drive_id;
@@ -97,7 +110,6 @@ export default function AnalyticsPage() {
       })),
     );
 
-    // Leaderboard
     const { data: topVolunteers } = await supabase
       .from("volunteers")
       .select("name, total_drives_attended")
@@ -116,62 +128,46 @@ export default function AnalyticsPage() {
   }
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-6 w-6 animate-spin" />
-      </div>
-    );
+    return <AnalyticsSkeleton />;
   }
+
+  const statCards = [
+    { label: "Total Volunteers", value: stats.totalVolunteers },
+    { label: "Total Drives", value: stats.totalDrives },
+    { label: "Total Assignments", value: stats.totalAssignments },
+    { label: "Completed", value: stats.completedAssignments },
+  ];
 
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Analytics</h1>
 
       <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-2">
-              <Users className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">
-                Total Volunteers
-              </span>
-            </div>
-            <p className="mt-1 text-3xl font-bold">{stats.totalVolunteers}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-2">
-              <CalendarDays className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">
-                Total Drives
-              </span>
-            </div>
-            <p className="mt-1 text-3xl font-bold">{stats.totalDrives}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-2">
-              <Utensils className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">
-                Total Assignments
-              </span>
-            </div>
-            <p className="mt-1 text-3xl font-bold">{stats.totalAssignments}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-2">
-              <Award className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">Completed</span>
-            </div>
-            <p className="mt-1 text-3xl font-bold">
-              {stats.completedAssignments}
-            </p>
-          </CardContent>
-        </Card>
+        {statCards.map((stat, i) => {
+          const { icon: Icon, color } = STAT_ICONS[i];
+          return (
+            <Card key={stat.label} className="overflow-hidden">
+              <div
+                className="h-1"
+                style={{ backgroundColor: COLORS[i % COLORS.length] }}
+              />
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-2">
+                  <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${color}`}>
+                    <Icon className="h-4 w-4" />
+                  </div>
+                  <span className="text-sm text-muted-foreground">
+                    {stat.label}
+                  </span>
+                </div>
+                <AnimatedCounter
+                  value={stat.value}
+                  className="mt-2 block text-3xl font-bold"
+                />
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -221,7 +217,7 @@ export default function AnalyticsPage() {
                   <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} />
                   <YAxis />
                   <Tooltip />
-                  <Bar dataKey="volunteers" fill="#2563eb" />
+                  <Bar dataKey="volunteers" fill="#c28519" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -236,7 +232,10 @@ export default function AnalyticsPage() {
       {leaderboard.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle>Volunteer Leaderboard</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <Trophy className="h-4 w-4 text-primary" />
+              Volunteer Leaderboard
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
@@ -246,9 +245,17 @@ export default function AnalyticsPage() {
                   className="flex items-center justify-between rounded-md border p-3"
                 >
                   <div className="flex items-center gap-3">
-                    <span className="w-6 text-center font-bold text-muted-foreground">
-                      {i + 1}
-                    </span>
+                    {i < 3 ? (
+                      <span
+                        className={`flex h-7 w-7 items-center justify-center rounded-full border text-xs font-bold ${MEDAL_STYLES[i]}`}
+                      >
+                        {i + 1}
+                      </span>
+                    ) : (
+                      <span className="flex h-7 w-7 items-center justify-center text-sm font-bold text-muted-foreground">
+                        {i + 1}
+                      </span>
+                    )}
                     <span className="font-medium">{v.name}</span>
                   </div>
                   <span className="font-bold">{v.drives} drives</span>

@@ -11,10 +11,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Plus, MapPin, Calendar, Utensils, Loader2 } from "lucide-react";
-import { formatDate, formatTime, getStatusColor } from "@/lib/utils";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { EmptyState } from "@/components/ui/empty-state";
+import { DrivesSkeleton } from "@/components/skeletons/drives-skeleton";
+import { Plus, MapPin, Calendar, Utensils, CalendarDays } from "lucide-react";
+import { formatDate, formatTime, getStatusDotColor } from "@/lib/utils";
 
 type DriveWithDuties = {
   id: string;
@@ -67,24 +69,18 @@ export default function DrivesPage() {
   }, []);
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-6 w-6 animate-spin" />
-      </div>
-    );
+    return <DrivesSkeleton />;
   }
 
   if (noSeason) {
     return (
-      <div className="flex flex-col items-center justify-center gap-4 py-20">
-        <h2 className="text-xl font-semibold">No Active Season</h2>
-        <p className="text-muted-foreground">
-          Create a season in Settings to get started.
-        </p>
-        <Link href="/settings/general">
-          <Button>Go to Settings</Button>
-        </Link>
-      </div>
+      <EmptyState
+        icon={CalendarDays}
+        title="No Active Season"
+        description="Create a season in Settings to get started."
+        actionLabel="Go to Settings"
+        actionHref="/settings/general"
+      />
     );
   }
 
@@ -106,16 +102,13 @@ export default function DrivesPage() {
       </div>
 
       {drives.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <p className="text-muted-foreground mb-4">
-              No drives yet for this season.
-            </p>
-            <Link href="/drives/new">
-              <Button variant="outline">Create Your First Drive</Button>
-            </Link>
-          </CardContent>
-        </Card>
+        <EmptyState
+          icon={CalendarDays}
+          title="No Drives Yet"
+          description="No drives yet for this season. Create your first drive to get started."
+          actionLabel="Create Your First Drive"
+          actionHref="/drives/new"
+        />
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {drives.map((drive) => {
@@ -137,13 +130,11 @@ export default function DrivesPage() {
 
             return (
               <Link key={drive.id} href={`/drives/${drive.id}`}>
-                <Card className="transition-shadow hover:shadow-md cursor-pointer">
+                <Card className="group cursor-pointer border-l-4 hover:border-primary/30" style={{ borderLeftColor: `hsl(var(--status-${drive.status}-dot))` }}>
                   <CardHeader className="pb-3">
                     <div className="flex items-start justify-between">
                       <CardTitle className="text-lg">{drive.name}</CardTitle>
-                      <Badge className={getStatusColor(drive.status)}>
-                        {drive.status.replace("_", " ")}
-                      </Badge>
+                      <StatusBadge status={drive.status} />
                     </div>
                     <CardDescription className="flex items-center gap-1">
                       <Calendar className="h-3 w-3" />

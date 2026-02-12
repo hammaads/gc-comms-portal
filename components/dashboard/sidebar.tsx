@@ -9,7 +9,6 @@ import {
   ClipboardList,
   BarChart3,
   Settings,
-  Megaphone,
   ChevronDown,
   Moon,
 } from "lucide-react";
@@ -31,15 +30,20 @@ const settingsNav = [
   { name: "Alerts", href: "/settings/alerts" },
 ];
 
-export function Sidebar() {
+export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const isSettingsOpen = pathname.startsWith("/settings");
 
   return (
-    <aside className="flex h-full w-64 flex-col border-r bg-card">
-      <div className="flex h-16 items-center gap-2 border-b px-6">
-        <Moon className="h-6 w-6 text-primary" />
-        <span className="text-lg font-bold">Grand Citizens</span>
+    <aside className="flex h-full w-64 flex-col bg-sidebar-bg">
+      <div className="flex h-16 items-center gap-3 border-b border-sidebar-border px-6">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sidebar-accent/20">
+          <Moon className="h-4 w-4 text-sidebar-accent" />
+        </div>
+        <div>
+          <span className="text-sm font-bold text-sidebar-fg">Grand Citizens</span>
+          <p className="text-[10px] text-sidebar-fg/50">Volunteer Management</p>
+        </div>
       </div>
 
       <nav className="flex-1 space-y-1 px-3 py-4">
@@ -50,11 +54,12 @@ export function Sidebar() {
             <Link
               key={item.name}
               href={item.href}
+              onClick={onNavigate}
               className={cn(
                 "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
                 isActive
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                  ? "bg-sidebar-accent/15 text-sidebar-accent"
+                  : "text-sidebar-fg/60 hover:bg-sidebar-muted hover:text-sidebar-fg",
               )}
             >
               <item.icon className="h-4 w-4" />
@@ -66,43 +71,53 @@ export function Sidebar() {
         <div className="pt-4">
           <Link
             href="/settings/general"
+            onClick={onNavigate}
             className={cn(
               "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
               isSettingsOpen
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                ? "bg-sidebar-accent/15 text-sidebar-accent"
+                : "text-sidebar-fg/60 hover:bg-sidebar-muted hover:text-sidebar-fg",
             )}
           >
             <Settings className="h-4 w-4" />
             Settings
             <ChevronDown
               className={cn(
-                "ml-auto h-4 w-4 transition-transform",
+                "ml-auto h-4 w-4 transition-transform duration-200",
                 isSettingsOpen && "rotate-180",
               )}
             />
           </Link>
-          {isSettingsOpen && (
-            <div className="ml-7 mt-1 space-y-1">
-              {settingsNav.map((item) => {
-                const isActive = pathname === item.href;
-                return (
-                  <Link
-                    key={item.name}
-                    href={item.href}
-                    className={cn(
-                      "block rounded-md px-3 py-1.5 text-sm transition-colors",
-                      isActive
-                        ? "font-medium text-primary"
-                        : "text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    {item.name}
-                  </Link>
-                );
-              })}
+          <div
+            className="ml-7 overflow-hidden transition-all duration-200"
+            style={{
+              display: "grid",
+              gridTemplateRows: isSettingsOpen ? "1fr" : "0fr",
+            }}
+          >
+            <div className="min-h-0">
+              <div className="mt-1 space-y-1">
+                {settingsNav.map((item) => {
+                  const isActive = pathname === item.href;
+                  return (
+                    <Link
+                      key={item.name}
+                      href={item.href}
+                      onClick={onNavigate}
+                      className={cn(
+                        "block rounded-md px-3 py-1.5 text-sm transition-colors",
+                        isActive
+                          ? "font-medium text-sidebar-accent"
+                          : "text-sidebar-fg/50 hover:text-sidebar-fg",
+                      )}
+                    >
+                      {item.name}
+                    </Link>
+                  );
+                })}
+              </div>
             </div>
-          )}
+          </div>
         </div>
       </nav>
     </aside>

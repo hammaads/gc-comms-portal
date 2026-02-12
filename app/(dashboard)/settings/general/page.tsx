@@ -5,7 +5,8 @@ import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Card,
   CardContent,
@@ -30,7 +31,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Plus, Trash2, Loader2 } from "lucide-react";
 import type { Tables } from "@/lib/supabase/types";
@@ -104,8 +104,22 @@ export default function SettingsGeneralPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-6 w-6 animate-spin" />
+      <div className="space-y-6">
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-40" />
+          <Skeleton className="h-4 w-48" />
+        </div>
+        <Card>
+          <CardHeader>
+            <Skeleton className="h-6 w-24" />
+            <Skeleton className="h-4 w-80" />
+          </CardHeader>
+          <CardContent>
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-12 w-full mb-2" />
+            ))}
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -184,10 +198,14 @@ export default function SettingsGeneralPage() {
                   </div>
                   <DialogFooter>
                     <Button type="submit" disabled={saving}>
-                      {saving && (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      {saving ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Creating...
+                        </>
+                      ) : (
+                        "Create"
                       )}
-                      Create
                     </Button>
                   </DialogFooter>
                 </form>
@@ -216,9 +234,7 @@ export default function SettingsGeneralPage() {
                   <TableCell>{season.end_date}</TableCell>
                   <TableCell>
                     {season.is_active ? (
-                      <Badge className="bg-green-100 text-green-800">
-                        Active
-                      </Badge>
+                      <StatusBadge status="active" />
                     ) : (
                       <Button
                         variant="ghost"

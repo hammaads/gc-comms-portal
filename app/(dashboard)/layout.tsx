@@ -10,14 +10,18 @@ export default function DashboardLayout({
 }) {
   return (
     <div className="flex h-screen overflow-hidden">
-      <Suspense>
-        <Sidebar />
-      </Suspense>
+      <div className="hidden md:flex">
+        <Suspense>
+          <Sidebar />
+        </Suspense>
+      </div>
       <div className="flex flex-1 flex-col overflow-hidden">
         <Suspense>
           <Topbar />
         </Suspense>
-        <main className="flex-1 overflow-y-auto p-6">{children}</main>
+        <main className="flex-1 animate-page-in overflow-y-auto p-6">
+          {children}
+        </main>
       </div>
       <Toaster />
     </div>

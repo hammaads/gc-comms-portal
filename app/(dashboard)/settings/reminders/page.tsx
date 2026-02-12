@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/card";
 import { toast } from "sonner";
 import { Loader2, Plus, Trash2 } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type Reminder = {
   type: string;
@@ -78,8 +79,19 @@ export default function ReminderSettingsPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-6 w-6 animate-spin" />
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div className="space-y-2">
+            <Skeleton className="h-8 w-40" />
+            <Skeleton className="h-4 w-80" />
+          </div>
+          <Skeleton className="h-10 w-32" />
+        </div>
+        <div className="space-y-4">
+          {Array.from({ length: 2 }).map((_, i) => (
+            <Card key={i}><CardContent className="pt-6 space-y-3"><Skeleton className="h-10 w-full" /><Skeleton className="h-20 w-full" /></CardContent></Card>
+          ))}
+        </div>
       </div>
     );
   }
@@ -152,8 +164,11 @@ export default function ReminderSettingsPage() {
       </div>
 
       <Button onClick={save} disabled={saving}>
-        {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-        Save Defaults
+        {saving ? (
+          <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Saving...</>
+        ) : (
+          "Save Defaults"
+        )}
       </Button>
     </div>
   );

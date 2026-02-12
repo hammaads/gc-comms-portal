@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/card";
 import { toast } from "sonner";
 import { Loader2, RefreshCw, FileSpreadsheet } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { Tables } from "@/lib/supabase/types";
 
 export default function SheetsSettingsPage() {
@@ -65,8 +66,18 @@ export default function SheetsSettingsPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-6 w-6 animate-spin" />
+      <div className="space-y-6">
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-48" />
+          <Skeleton className="h-4 w-80" />
+        </div>
+        <Card>
+          <CardHeader><Skeleton className="h-6 w-24" /><Skeleton className="h-4 w-72" /></CardHeader>
+          <CardContent className="space-y-4">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </CardContent>
+        </Card>
       </div>
     );
   }

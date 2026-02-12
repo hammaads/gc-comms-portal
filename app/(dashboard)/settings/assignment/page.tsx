@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { Loader2, GripVertical } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export default function AssignmentSettingsPage() {
   const supabase = createClient();
@@ -71,8 +72,17 @@ export default function AssignmentSettingsPage() {
 
   if (loading || !config) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-6 w-6 animate-spin" />
+      <div className="space-y-6">
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-48" />
+          <Skeleton className="h-4 w-64" />
+        </div>
+        <Card><CardHeader><Skeleton className="h-6 w-40" /></CardHeader><CardContent><Skeleton className="h-10 w-64" /></CardContent></Card>
+        <div className="grid gap-6 md:grid-cols-2">
+          {Array.from({ length: 2 }).map((_, i) => (
+            <Card key={i}><CardHeader><Skeleton className="h-6 w-40" /></CardHeader><CardContent className="space-y-2">{Array.from({ length: 4 }).map((_, j) => <Skeleton key={j} className="h-10 w-full" />)}</CardContent></Card>
+          ))}
+        </div>
       </div>
     );
   }
@@ -200,8 +210,11 @@ export default function AssignmentSettingsPage() {
       </Card>
 
       <Button onClick={save} disabled={saving}>
-        {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-        Save Settings
+        {saving ? (
+          <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Saving...</>
+        ) : (
+          "Save Settings"
+        )}
       </Button>
     </div>
   );
