@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,6 +37,7 @@ import {
   Trash2,
   AlertTriangle,
   ChevronsUpDown,
+  Check,
 } from "lucide-react";
 import { SkeletonForm } from "@/components/ui/skeleton-form";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -99,7 +100,9 @@ export default function AssignmentSettingsPage() {
   const [dutyMap, setDutyMap] = useState<Map<string, Duty>>(new Map());
 
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const dirtyRef = useRef(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // VIP form state
   const [vipOpen, setVipOpen] = useState(false);
@@ -197,6 +200,7 @@ export default function AssignmentSettingsPage() {
       }
       next = [...entries, newEntry];
     }
+    dirtyRef.current = true;
     setEntries(next);
     setShowVipForm(false);
     setEditingId(null);
@@ -204,6 +208,7 @@ export default function AssignmentSettingsPage() {
   }
 
   function removeVipEntry(id: string) {
+    dirtyRef.current = true;
     setEntries(entries.filter((e) => e.id !== id));
   }
 
@@ -222,21 +227,25 @@ export default function AssignmentSettingsPage() {
 
   function handleMoveUp(field: "male_priority_order" | "female_priority_order", index: number) {
     if (!config || index === 0) return;
+    dirtyRef.current = true;
     setConfig({ ...config, [field]: moveItem(config[field], index, index - 1) });
   }
 
   function handleMoveDown(field: "male_priority_order" | "female_priority_order", index: number) {
     if (!config || index === config[field].length - 1) return;
+    dirtyRef.current = true;
     setConfig({ ...config, [field]: moveItem(config[field], index, index + 1) });
   }
 
   function handleRemoveDuty(field: "male_priority_order" | "female_priority_order", index: number) {
     if (!config) return;
+    dirtyRef.current = true;
     setConfig({ ...config, [field]: config[field].filter((_, i) => i !== index) });
   }
 
   function handleAddDuty(field: "male_priority_order" | "female_priority_order", slug: string) {
     if (!config) return;
+    dirtyRef.current = true;
     setConfig({ ...config, [field]: [...config[field], slug] });
   }
 
@@ -246,41 +255,52 @@ export default function AssignmentSettingsPage() {
     return duties.filter((d) => !used.has(d.slug));
   }
 
-  // --- Save ---
-  async function save() {
-    if (!config) return;
-    setSaving(true);
+  // --- Auto-save on change ---
+  useEffect(() => {
+    if (!dirtyRef.current || !config) return;
 
-    // Strip phantom slugs before saving
-    const cleanConfig = {
-      ...config,
-      male_priority_order: config.male_priority_order.filter((s) => !isPhantom(s)),
-      female_priority_order: config.female_priority_order.filter((s) => !isPhantom(s)),
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    debounceRef.current = setTimeout(async () => {
+      setSaveStatus("saving");
+
+      // Strip phantom slugs before saving
+      const cleanConfig = {
+        ...config,
+        male_priority_order: config.male_priority_order.filter((s) => !isPhantom(s)),
+        female_priority_order: config.female_priority_order.filter((s) => !isPhantom(s)),
+      };
+
+      const [rulesRes, entriesRes] = await Promise.all([
+        supabase.from("app_config").update({ value: cleanConfig as unknown as Record<string, unknown> }).eq("key", "assignment_rules"),
+        supabase.from("app_config").upsert(
+          {
+            key: "priority_duty_entries",
+            value: entries as unknown as Record<string, unknown>,
+            description: "Priority phone numbers for duty assignment",
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "key" },
+        ),
+      ]);
+
+      dirtyRef.current = false;
+
+      if (rulesRes.error || entriesRes.error) {
+        setSaveStatus("error");
+        toast.error(rulesRes.error?.message || entriesRes.error?.message || "Save failed");
+      } else {
+        setConfig(cleanConfig);
+        setSaveStatus("saved");
+        setTimeout(() => setSaveStatus("idle"), 2000);
+      }
+    }, 600);
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-
-    const [rulesRes, entriesRes] = await Promise.all([
-      supabase.from("app_config").update({ value: cleanConfig as unknown as Record<string, unknown> }).eq("key", "assignment_rules"),
-      supabase.from("app_config").upsert(
-        {
-          key: "priority_duty_entries",
-          value: entries as unknown as Record<string, unknown>,
-          description: "Priority phone numbers for duty assignment",
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "key" },
-      ),
-    ]);
-
-    setSaving(false);
-
-    if (rulesRes.error || entriesRes.error) {
-      toast.error(rulesRes.error?.message || entriesRes.error?.message || "Save failed");
-    } else {
-      // Update local state to reflect cleaned config
-      setConfig(cleanConfig);
-      toast.success("Settings saved");
-    }
-  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config, entries]);
 
   // --- Loading skeleton ---
   if (loading || !config) {
@@ -302,7 +322,27 @@ export default function AssignmentSettingsPage() {
     <div className="space-y-8 page-fade-in max-w-4xl">
       {/* Header */}
       <div className="space-y-1">
-        <h1 className="text-2xl font-bold tracking-tight">Auto-Assignment Rules</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold tracking-tight">Auto-Assignment Rules</h1>
+          {saveStatus === "saving" && (
+            <span className="flex items-center gap-1.5 text-sm text-muted-foreground animate-in fade-in">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Saving&hellip;
+            </span>
+          )}
+          {saveStatus === "saved" && (
+            <span className="flex items-center gap-1.5 text-sm text-muted-foreground animate-in fade-in">
+              <Check className="h-3.5 w-3.5" />
+              Saved
+            </span>
+          )}
+          {saveStatus === "error" && (
+            <span className="flex items-center gap-1.5 text-sm text-destructive animate-in fade-in">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              Save failed
+            </span>
+          )}
+        </div>
         <p className="text-muted-foreground">
           Configure how volunteers are automatically assigned to duties
         </p>
@@ -499,7 +539,7 @@ export default function AssignmentSettingsPage() {
             <Label className="text-sm text-muted-foreground shrink-0">Look back at:</Label>
             <Select
               value={config.history_lookback}
-              onValueChange={(v) => setConfig({ ...config, history_lookback: v })}
+              onValueChange={(v) => { dirtyRef.current = true; setConfig({ ...config, history_lookback: v }); }}
             >
               <SelectTrigger className="w-full sm:w-[250px]">
                 <SelectValue />
@@ -631,18 +671,11 @@ export default function AssignmentSettingsPage() {
           </div>
           <Switch
             checked={config.waitlist_auto_fill}
-            onCheckedChange={(v) => setConfig({ ...config, waitlist_auto_fill: v })}
+            onCheckedChange={(v) => { dirtyRef.current = true; setConfig({ ...config, waitlist_auto_fill: v }); }}
           />
         </CardContent>
       </Card>
 
-      {/* Save */}
-      <div className="border-t border-border pt-6">
-        <Button onClick={save} disabled={saving}>
-          {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          Save Settings
-        </Button>
-      </div>
     </div>
   );
 }
