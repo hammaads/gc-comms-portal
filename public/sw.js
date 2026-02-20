@@ -44,11 +44,13 @@ self.addEventListener("fetch", (event) => {
       caches.match(request).then(
         (cached) =>
           cached ||
-          fetch(request).then((response) => {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
-            return response;
-          })
+          fetch(request)
+            .then((response) => {
+              const clone = response.clone();
+              caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+              return response;
+            })
+            .catch(() => Response.error())
       )
     );
     return;

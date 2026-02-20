@@ -13,6 +13,9 @@ export function ServiceWorkerRegister() {
               registration.update();
             }
           });
+        })
+        .catch((error) => {
+          console.error("Service worker registration failed:", error);
         });
     }
   }, []);
