@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { Sidebar } from "@/components/dashboard/sidebar";
 import { Topbar } from "@/components/dashboard/topbar";
+import { InstallPrompt } from "@/components/pwa/install-prompt";
 import { Toaster } from "@/components/ui/sonner";
 
 export default function DashboardLayout({
@@ -17,6 +18,7 @@ export default function DashboardLayout({
         <Suspense>
           <Topbar />
         </Suspense>
+        <InstallPrompt />
         <main className="min-w-0 flex-1 overflow-auto p-4 sm:p-6">
           <div className="min-w-0">
             {children}
