@@ -10,6 +10,7 @@ import { formatEstimatedDate } from "@/lib/ramadan-dates";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { MobileSidebar } from "@/components/dashboard/sidebar";
 import { ArrowLeft, LogOut, Menu } from "lucide-react";
+import { PushNotificationToggle } from "@/components/pwa/push-notification-toggle";
 
 export function Topbar() {
   const router = useRouter();
@@ -121,7 +122,11 @@ export function Topbar() {
           )}
         </div>
       </div>
+      <div className="flex shrink-0 items-center gap-2 lg:hidden">
+        <PushNotificationToggle />
+      </div>
       <div className="hidden shrink-0 items-center gap-3 lg:flex lg:gap-4">
+        <PushNotificationToggle />
         <ThemeSwitcher />
         <LogoutButton
           variant="ghost"

@@ -6,6 +6,7 @@ import { autoAssignVolunteer } from "@/lib/assignment/auto-assign";
 import * as Sentry from "@sentry/nextjs";
 import { rateLimit } from "@/lib/rate-limit";
 import { getPostHogClient } from "@/lib/posthog-server";
+import { sendPushNotificationToAll } from "@/lib/push";
 
 export async function POST(request: NextRequest) {
   const limited = rateLimit(request, 10, 60_000);
@@ -110,12 +111,23 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Queue WhatsApp welcome DM + group-add (runs after response is sent)
+    // Queue WhatsApp welcome DM + push notification (runs after response is sent)
     after(async () => {
       try {
         await queueWhatsAppWelcome(supabase, volunteerRow.id, normalizedPhone, name.trim(), assignments);
       } catch (err) {
         console.error("[volunteer-register] WhatsApp welcome queue failed:", err);
+      }
+
+      try {
+        const driveNames = assignments.map((a) => a.drive).join(", ");
+        await sendPushNotificationToAll({
+          title: "New Volunteer Signup",
+          body: `${name.trim()} signed up for ${driveNames}`,
+          url: "/volunteers",
+        });
+      } catch (err) {
+        console.error("[volunteer-register] Push notification failed:", err);
       }
     });
 
