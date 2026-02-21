@@ -30,6 +30,8 @@ export function setupCronJobs(
   // Send reminders - every minute
   new CronJob("* * * * *", () => {
     Sentry.withMonitor("send-reminders", async () => {
+      if (whatsapp.getStatus() !== "connected") return;
+
       const { data: waConf } = await supabase
         .from("app_config")
         .select("value")
@@ -54,9 +56,32 @@ export function setupCronJobs(
           .eq("drive_id", reminder.drive_id)
           .in("status", ["assigned", "confirmed"]);
 
-        if (!assignments) continue;
+        if (!assignments || assignments.length === 0) continue;
+
+        // Check which volunteers already received this reminder (for retry dedup)
+        const volunteerIds = assignments.map((a) => a.volunteer_id);
+        const { data: alreadySentLogs } = await supabase
+          .from("communication_log")
+          .select("volunteer_id")
+          .eq("drive_id", reminder.drive_id)
+          .eq("channel", "whatsapp")
+          .eq("direction", "outbound")
+          .like("content", `${(reminder.message_template || "").slice(0, 40)}%`)
+          .in("volunteer_id", volunteerIds);
+
+        const alreadySent = new Set(
+          (alreadySentLogs || []).map((l: { volunteer_id: string }) => l.volunteer_id),
+        );
+
+        let sentCount = 0;
+        let failCount = 0;
 
         for (const assignment of assignments) {
+          if (alreadySent.has(assignment.volunteer_id)) {
+            sentCount++; // Already delivered on previous attempt
+            continue;
+          }
+
           const volunteer = assignment.volunteers as any;
           const duty = assignment.duties as any;
           if (!volunteer?.phone) continue;
@@ -71,6 +96,7 @@ export function setupCronJobs(
 
           try {
             await whatsapp.sendMessage(volunteer.phone, message);
+            sentCount++;
 
             await supabase.from("communication_log").insert({
               volunteer_id: assignment.volunteer_id,
@@ -81,6 +107,7 @@ export function setupCronJobs(
               sent_at: new Date().toISOString(),
             });
           } catch (error) {
+            failCount++;
             cronLogger.error(
               { err: error, phone: volunteer.phone },
               "Failed to send reminder",
@@ -88,11 +115,18 @@ export function setupCronJobs(
           }
         }
 
-        // Mark reminder as sent
-        await supabase
-          .from("reminder_schedules")
-          .update({ is_sent: true, sent_at: new Date().toISOString() })
-          .eq("id", reminder.id);
+        // Only mark as sent if all volunteers were covered
+        if (failCount === 0) {
+          await supabase
+            .from("reminder_schedules")
+            .update({ is_sent: true, sent_at: new Date().toISOString() })
+            .eq("id", reminder.id);
+        } else {
+          cronLogger.warn(
+            { reminderId: reminder.id, sentCount, failCount },
+            "Reminder partially failed — will retry on next cron tick",
+          );
+        }
       }
     }, {
       schedule: { type: "crontab", value: "* * * * *" },

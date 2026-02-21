@@ -46,8 +46,8 @@ export class WhatsAppManager {
     await this.disconnect();
     try {
       // Dynamic import for Baileys (ESM module)
-      const { default: makeWASocket, DisconnectReason } =
-        await import("baileys");
+      const { makeWASocket, DisconnectReason } =
+        await import("@whiskeysockets/baileys");
       const { useSupabaseAuthState } = await import("./supabase-auth-state");
 
       const { state, saveCreds } = await useSupabaseAuthState(this.supabase);
@@ -58,7 +58,7 @@ export class WhatsAppManager {
 
       this.sock = makeWASocket({
         auth: state,
-        logger: silentLogger,
+        logger: silentLogger as any,
       });
 
       this.sock.ev.on("creds.update", saveCreds);

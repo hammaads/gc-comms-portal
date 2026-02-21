@@ -7,7 +7,7 @@ import { whatsappLogger } from "../lib/logger";
  * Railway redeployments.
  */
 export async function useSupabaseAuthState(supabase: SupabaseClient) {
-  const { initAuthCreds, BufferJSON } = await import("baileys");
+  const { initAuthCreds, BufferJSON } = await import("@whiskeysockets/baileys");
 
   // --- Load or initialize creds ---
   const { data: credsRow } = await supabase
