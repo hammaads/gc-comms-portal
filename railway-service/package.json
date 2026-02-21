@@ -13,7 +13,7 @@
   "dependencies": {
     "@sentry/node": "^10.38.0",
     "@supabase/supabase-js": "^2.49.0",
-    "@whiskeysockets/baileys": "^6.6.0",
+    "@whiskeysockets/baileys": "^6.17.16",
     "cron": "^3.5.0",
     "dotenv": "^17.3.1",
     "express": "^4.21.0",

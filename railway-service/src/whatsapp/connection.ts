@@ -59,6 +59,10 @@ export class WhatsAppManager {
       this.sock = makeWASocket({
         auth: state,
         logger: silentLogger as any,
+        keepAliveIntervalMs: 20000,
+        connectTimeoutMs: 60000,
+        defaultQueryTimeoutMs: 60000,
+        retryRequestDelayMs: 5000,
       });
 
       this.sock.ev.on("creds.update", saveCreds);
