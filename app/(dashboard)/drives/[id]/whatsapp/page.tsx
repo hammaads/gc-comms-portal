@@ -481,14 +481,20 @@ function ChatSheet({
       }
 
       // Log the message to communication_log
-      await supabase.from("communication_log").insert({
-        volunteer_id: volunteer.id,
-        drive_id: driveId,
-        channel: "whatsapp",
-        direction: "outbound",
-        content: composing.trim(),
-        sent_at: new Date().toISOString(),
-      });
+      const { error: logError } = await supabase
+        .from("communication_log")
+        .insert({
+          volunteer_id: volunteer.id,
+          drive_id: driveId,
+          channel: "whatsapp",
+          direction: "outbound",
+          content: composing.trim(),
+          sent_at: new Date().toISOString(),
+        });
+
+      if (logError) {
+        toast.warning("Message sent but failed to log — it may not appear in history");
+      }
 
       setComposing("");
       onMessageSent();
