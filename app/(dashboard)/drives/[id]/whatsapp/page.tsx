@@ -45,6 +45,8 @@ import {
   RefreshCw,
   MessageCircle,
   Plus,
+  Send,
+  XCircle,
 } from "lucide-react";
 import type { Tables } from "@/lib/supabase/types";
 
@@ -62,6 +64,7 @@ type Assignment = {
 type CommLog = {
   id: string;
   volunteer_id: string;
+  drive_id: string | null;
   direction: string;
   content: string | null;
   sent_at: string | null;
@@ -391,26 +394,40 @@ function ChatSheet({
   open,
   onOpenChange,
   volunteer,
+  driveId,
+  assignmentId,
+  assignmentStatus,
+  onMessageSent,
+  onAssignmentCancelled,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   volunteer: { id: string; name: string; phone: string } | null;
+  driveId: string;
+  assignmentId: string | null;
+  assignmentStatus: string | null;
+  onMessageSent: () => void;
+  onAssignmentCancelled: () => void;
 }) {
   const supabase = createClient();
   const [messages, setMessages] = useState<CommLog[]>([]);
   const [loading, setLoading] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const [composing, setComposing] = useState("");
+  const [sending, setSending] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open || !volunteer) {
       setMessages([]);
+      setComposing("");
       return;
     }
 
     setLoading(true);
     supabase
       .from("communication_log")
-      .select("id, direction, content, sent_at, error, created_at")
+      .select("id, drive_id, direction, content, sent_at, error, created_at")
       .eq("volunteer_id", volunteer.id)
       .eq("channel", "whatsapp")
       .order("created_at", { ascending: true })
@@ -421,19 +438,143 @@ function ChatSheet({
   }, [open, volunteer?.id]);
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    // Scroll to bottom when messages load or change
+    if (bottomRef.current) {
+      bottomRef.current.scrollIntoView({ behavior: "instant" });
     }
-  }, [messages]);
+  }, [messages, loading]);
+
+  async function handleSend() {
+    if (!composing.trim() || !volunteer) return;
+    setSending(true);
+    try {
+      const res = await fetch("/api/whatsapp/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phone: volunteer.phone,
+          message: composing.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Failed to send message");
+        setSending(false);
+        return;
+      }
+
+      // Log the message to communication_log
+      await supabase.from("communication_log").insert({
+        volunteer_id: volunteer.id,
+        drive_id: driveId,
+        channel: "whatsapp",
+        direction: "outbound",
+        content: composing.trim(),
+        sent_at: new Date().toISOString(),
+      });
+
+      setComposing("");
+      onMessageSent();
+
+      // Reload chat messages
+      const { data: refreshed } = await supabase
+        .from("communication_log")
+        .select("id, drive_id, direction, content, sent_at, error, created_at")
+        .eq("volunteer_id", volunteer.id)
+        .eq("channel", "whatsapp")
+        .order("created_at", { ascending: true });
+      if (refreshed) setMessages(refreshed as CommLog[]);
+    } catch {
+      toast.error("Failed to send message");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function handleCancel() {
+    if (!assignmentId) return;
+    setCancelling(true);
+    const { error } = await supabase
+      .from("assignments")
+      .update({ status: "cancelled" })
+      .eq("id", assignmentId);
+    if (error) {
+      toast.error("Failed to cancel assignment");
+      setCancelling(false);
+      return;
+    }
+    toast.success("Assignment cancelled");
+
+    // Auto-promote next waitlisted volunteer
+    try {
+      await fetch("/api/assignments/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ driveId }),
+      });
+    } catch {
+      // Non-critical — promotion can be done manually
+    }
+
+    setCancelling(false);
+    onAssignmentCancelled();
+  }
+
+  // Group messages by date for date separators
+  function getDateLabel(dateStr: string): string {
+    const d = new Date(dateStr);
+    const today = new Date();
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (d.toDateString() === today.toDateString()) return "Today";
+    if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
+    return d.toLocaleDateString("en-PK", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+  }
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="flex flex-col">
-        <SheetHeader>
-          <SheetTitle>{volunteer?.name ?? "Volunteer"}</SheetTitle>
-          <SheetDescription>
-            {volunteer?.phone ? formatPhone(volunteer.phone) : ""}
-          </SheetDescription>
+      <SheetContent
+        side="right"
+        className="flex w-full flex-col sm:max-w-[480px]"
+      >
+        <SheetHeader className="border-b pb-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <SheetTitle>{volunteer?.name ?? "Volunteer"}</SheetTitle>
+              <SheetDescription>
+                {volunteer?.phone ? formatPhone(volunteer.phone) : ""}
+              </SheetDescription>
+            </div>
+            {assignmentStatus && assignmentStatus !== "cancelled" && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 border-red-500/30 text-red-600 hover:bg-red-500/10 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                onClick={handleCancel}
+                disabled={cancelling}
+              >
+                {cancelling ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <XCircle className="h-3.5 w-3.5" />
+                )}
+                {cancelling ? "Cancelling..." : "Cancel Assignment"}
+              </Button>
+            )}
+            {assignmentStatus === "cancelled" && (
+              <Badge
+                variant="outline"
+                className="gap-1 border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300"
+              >
+                <XCircle className="h-3 w-3" />
+                Cancelled
+              </Badge>
+            )}
+          </div>
         </SheetHeader>
 
         {loading ? (
@@ -444,69 +585,123 @@ function ChatSheet({
           <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground">
             <MessageCircle className="h-10 w-10" />
             <p className="text-sm font-medium">No messages yet</p>
+            <p className="text-xs">Send a message below to start</p>
           </div>
         ) : (
-          <ScrollArea className="flex-1 px-4" ref={scrollRef}>
-            <div className="space-y-3 py-2">
-              {messages.map((msg) => {
+          <div className="flex-1 overflow-y-auto px-4">
+            <div className="space-y-1.5 py-3">
+              {messages.map((msg, i) => {
                 const isOutbound = msg.direction === "outbound";
+                const isThisDrive = msg.drive_id === driveId;
+                const prevMsg = i > 0 ? messages[i - 1] : null;
+                const showDateSep =
+                  !prevMsg ||
+                  getDateLabel(msg.sent_at || msg.created_at) !==
+                    getDateLabel(prevMsg.sent_at || prevMsg.created_at);
+
                 return (
-                  <div
-                    key={msg.id}
-                    className={cn(
-                      "flex",
-                      isOutbound ? "justify-end" : "justify-start",
+                  <div key={msg.id}>
+                    {showDateSep && (
+                      <div className="flex items-center justify-center py-2">
+                        <span className="rounded-full bg-muted px-3 py-0.5 text-[10px] font-medium text-muted-foreground">
+                          {getDateLabel(msg.sent_at || msg.created_at)}
+                        </span>
+                      </div>
                     )}
-                  >
                     <div
                       className={cn(
-                        "max-w-[85%] rounded-lg px-3 py-2 text-sm",
-                        isOutbound
-                          ? "rounded-br-sm bg-emerald-600 text-white dark:bg-emerald-700"
-                          : "rounded-bl-sm bg-muted",
+                        "flex",
+                        isOutbound ? "justify-end" : "justify-start",
                       )}
                     >
-                      <p className="whitespace-pre-wrap break-words">
-                        {msg.content || "(no content)"}
-                      </p>
                       <div
                         className={cn(
-                          "mt-1 flex items-center gap-1 text-[10px]",
+                          "max-w-[85%] rounded-lg px-3 py-2 text-sm",
                           isOutbound
-                            ? "justify-end text-emerald-200"
-                            : "text-muted-foreground",
+                            ? "rounded-br-sm bg-emerald-600 text-white dark:bg-emerald-700"
+                            : "rounded-bl-sm bg-muted",
+                          isOutbound &&
+                            isThisDrive &&
+                            "ring-2 ring-emerald-400/50 dark:ring-emerald-500/40",
                         )}
                       >
-                        <span>
-                          {new Date(
-                            msg.sent_at || msg.created_at,
-                          ).toLocaleTimeString("en-PK", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </span>
-                        {msg.error && (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <AlertCircle className="h-3 w-3 text-red-400" />
-                            </TooltipTrigger>
-                            <TooltipContent>{msg.error}</TooltipContent>
-                          </Tooltip>
+                        {isOutbound && isThisDrive && (
+                          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-emerald-200 dark:text-emerald-300">
+                            This drive
+                          </span>
                         )}
+                        <p className="whitespace-pre-wrap break-words">
+                          {msg.content || "(no content)"}
+                        </p>
+                        <div
+                          className={cn(
+                            "mt-1 flex items-center gap-1 text-[10px]",
+                            isOutbound
+                              ? "justify-end text-emerald-200"
+                              : "text-muted-foreground",
+                          )}
+                        >
+                          <span>
+                            {new Date(
+                              msg.sent_at || msg.created_at,
+                            ).toLocaleTimeString("en-PK", {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                          {msg.error && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <AlertCircle className="h-3 w-3 text-red-400" />
+                              </TooltipTrigger>
+                              <TooltipContent>{msg.error}</TooltipContent>
+                            </Tooltip>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
                 );
               })}
+              <div ref={bottomRef} />
             </div>
-          </ScrollArea>
+          </div>
         )}
 
-        <SheetFooter>
-          <p className="text-xs text-muted-foreground">
+        {/* Compose area */}
+        <div className="border-t p-3">
+          <p className="mb-2 text-[10px] text-muted-foreground">
             Only messages sent through this system are shown
           </p>
-        </SheetFooter>
+          <div className="flex items-end gap-2">
+            <Textarea
+              value={composing}
+              onChange={(e) => setComposing(e.target.value)}
+              placeholder="Type a message..."
+              rows={2}
+              className="min-h-[40px] flex-1 resize-none text-sm"
+              disabled={sending}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
+            />
+            <Button
+              size="icon"
+              onClick={handleSend}
+              disabled={sending || !composing.trim()}
+              className="h-10 w-10 shrink-0"
+            >
+              {sending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
+        </div>
       </SheetContent>
     </Sheet>
   );
@@ -534,6 +729,8 @@ export default function WhatsAppPage() {
     name: string;
     phone: string;
   } | null>(null);
+  const [selectedAssignmentId, setSelectedAssignmentId] = useState<string | null>(null);
+  const [selectedAssignmentStatus, setSelectedAssignmentStatus] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -555,7 +752,7 @@ export default function WhatsAppPage() {
           .order("created_at"),
         supabase
           .from("communication_log")
-          .select("id, volunteer_id, direction, content, sent_at, error, created_at")
+          .select("id, volunteer_id, drive_id, direction, content, sent_at, error, created_at")
           .eq("drive_id", driveId)
           .eq("channel", "whatsapp")
           .order("created_at"),
@@ -613,6 +810,7 @@ export default function WhatsAppPage() {
 
   const stats = assignments.reduce(
     (acc, a) => {
+      if (a.status === "cancelled") return acc;
       const logs = getVolunteerLogs(a.volunteer_id);
       const outbound = logs.find((l) => l.direction === "outbound");
       if (outbound?.error) {
@@ -786,7 +984,10 @@ export default function WhatsAppPage() {
                   return (
                     <TableRow
                       key={a.id}
-                      className="cursor-pointer transition-colors hover:bg-muted/50"
+                      className={cn(
+                        "cursor-pointer transition-colors hover:bg-muted/50",
+                        a.status === "cancelled" && "opacity-50",
+                      )}
                       onClick={() => {
                         if (a.volunteers) {
                           setSelectedVolunteer({
@@ -794,21 +995,33 @@ export default function WhatsAppPage() {
                             name: a.volunteers.name,
                             phone: a.volunteers.phone,
                           });
+                          setSelectedAssignmentId(a.id);
+                          setSelectedAssignmentStatus(a.status);
                           setChatOpen(true);
                         }
                       }}
                     >
-                      <TableCell className="font-medium">
+                      <TableCell className={cn("font-medium", a.status === "cancelled" && "line-through")}>
                         {a.volunteers?.name ?? "—"}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {a.duties?.name ?? "—"}
                       </TableCell>
                       <TableCell>
-                        <DeliveryStatusBadge
-                          logs={logs}
-                          reminder={reminder}
-                        />
+                        {a.status === "cancelled" ? (
+                          <Badge
+                            variant="outline"
+                            className="gap-1 border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300"
+                          >
+                            <XCircle className="h-3 w-3" />
+                            Cancelled
+                          </Badge>
+                        ) : (
+                          <DeliveryStatusBadge
+                            logs={logs}
+                            reminder={reminder}
+                          />
+                        )}
                       </TableCell>
                       <TableCell className="hidden max-w-[300px] truncate sm:table-cell">
                         {preview ? (
@@ -839,6 +1052,14 @@ export default function WhatsAppPage() {
           open={chatOpen}
           onOpenChange={setChatOpen}
           volunteer={selectedVolunteer}
+          driveId={driveId}
+          assignmentId={selectedAssignmentId}
+          assignmentStatus={selectedAssignmentStatus}
+          onMessageSent={loadData}
+          onAssignmentCancelled={() => {
+            loadData();
+            setChatOpen(false);
+          }}
         />
       </div>
     </TooltipProvider>
