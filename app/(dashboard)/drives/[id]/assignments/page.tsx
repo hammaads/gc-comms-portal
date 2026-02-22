@@ -902,7 +902,10 @@ export default function AssignmentsPage() {
           {driveDuties.map((dd) => {
             const dutyAssignments = assignments.filter(
               (a) =>
-                a.duty_id === dd.duty_id && a.status !== "waitlisted",
+                a.duty_id === dd.duty_id &&
+                a.status !== "waitlisted" &&
+                a.status !== "cancelled" &&
+                a.status !== "no_show",
             );
             const capacity =
               dd.manual_capacity_override ?? dd.calculated_capacity;
