@@ -87,7 +87,7 @@ function DeliveryStatusBadge({
   logs: CommLog[];
   reminder: Tables<"reminder_schedules"> | null;
 }) {
-  const outboundLog = logs.find((l) => l.direction === "outbound");
+  const outboundLog = logs.findLast((l) => l.direction === "outbound");
 
   if (outboundLog?.error) {
     return (
@@ -829,7 +829,7 @@ export default function WhatsAppPage() {
     (acc, a) => {
       if (a.status === "cancelled") return acc;
       const logs = getVolunteerLogs(a.volunteer_id);
-      const outbound = logs.find((l) => l.direction === "outbound");
+      const outbound = logs.findLast((l) => l.direction === "outbound");
       if (outbound?.error) {
         acc.failed++;
       } else if (outbound) {
@@ -848,16 +848,16 @@ export default function WhatsAppPage() {
   ): string {
     if (!driveInfo) return tpl;
     return tpl
-      .replace("{name}", assignment.volunteers?.name ?? "")
-      .replace("{duty}", assignment.duties?.name ?? "")
-      .replace("{drive_name}", driveInfo.name)
-      .replace("{location}", driveInfo.location_name ?? "")
-      .replace("{sunset_time}", formatTime(driveInfo.sunset_time));
+      .replaceAll("{name}", assignment.volunteers?.name ?? "")
+      .replaceAll("{duty}", assignment.duties?.name ?? "")
+      .replaceAll("{drive_name}", driveInfo.name)
+      .replaceAll("{location}", driveInfo.location_name ?? "")
+      .replaceAll("{sunset_time}", formatTime(driveInfo.sunset_time));
   }
 
   function getMessagePreview(assignment: Assignment): string {
     const logs = getVolunteerLogs(assignment.volunteer_id);
-    const outbound = logs.find((l) => l.direction === "outbound");
+    const outbound = logs.findLast((l) => l.direction === "outbound");
     if (outbound?.content) return outbound.content;
     if (reminder?.message_template) {
       return interpolateTemplate(reminder.message_template, assignment);
@@ -993,7 +993,7 @@ export default function WhatsAppPage() {
               <TableBody>
                 {assignments.map((a) => {
                   const logs = getVolunteerLogs(a.volunteer_id);
-                  const outbound = logs.find(
+                  const outbound = logs.findLast(
                     (l) => l.direction === "outbound",
                   );
                   const preview = getMessagePreview(a);
