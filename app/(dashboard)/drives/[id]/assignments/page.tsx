@@ -29,8 +29,6 @@ import {
   RefreshCw,
   GripVertical,
   Settings,
-  PhoneCall,
-  Copy,
   UserX,
   AlertTriangle,
   Search,
@@ -154,7 +152,6 @@ function VolunteerCard({
   const { attributes, listeners, setNodeRef, transform, transition } =
     useSortable({ id: assignment.id });
   const v = assignment.volunteers;
-  const phone = v?.phone;
   const genderLetter =
     v?.gender?.charAt(0)?.toUpperCase() === "F"
       ? "F"
@@ -166,15 +163,6 @@ function VolunteerCard({
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
-  };
-
-  const copyPhone = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (phone) {
-      navigator.clipboard.writeText(phone);
-      toast.success("Number copied");
-    }
   };
 
   const isCancelled = assignment.status === "cancelled";
@@ -206,34 +194,6 @@ function VolunteerCard({
         >
           {truncateVolunteerName(v?.name)}
         </span>
-        {phone && (
-          <TooltipProvider delayDuration={200}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <a
-                  href={`tel:${phone.replace(/\s/g, "")}`}
-                  title={phone}
-                  onClick={(e) => e.stopPropagation()}
-                  className="shrink-0 flex items-center justify-center rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                  aria-label={`Call ${v?.name ?? "volunteer"}`}
-                >
-                  <PhoneCall className="h-3.5 w-3.5" />
-                </a>
-              </TooltipTrigger>
-              <TooltipContent side="top" className="flex items-center gap-2 py-1.5">
-                <span className="font-mono text-xs">{phone}</span>
-                <button
-                  type="button"
-                  onClick={copyPhone}
-                  className="shrink-0 rounded p-1 hover:bg-white/20"
-                  aria-label="Copy number"
-                >
-                  <Copy className="h-3 w-3" />
-                </button>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        )}
         {genderLetter && (
           <Badge
             variant="outline"
@@ -248,24 +208,17 @@ function VolunteerCard({
           </Badge>
         )}
         {onCancel && !isCancelled && (
-          <TooltipProvider delayDuration={200}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onCancel(assignment.id);
-                  }}
-                  className="shrink-0 hidden items-center justify-center rounded p-1 text-muted-foreground hover:bg-red-500/10 hover:text-red-600 group-hover:flex"
-                  aria-label={`Cancel ${v?.name ?? "volunteer"}`}
-                >
-                  <UserX className="h-3.5 w-3.5" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="top">Cancel assignment</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onCancel(assignment.id);
+            }}
+            className="shrink-0 flex items-center justify-center rounded p-1 text-red-400 hover:bg-red-500/10 hover:text-red-600"
+            aria-label={`Cancel ${v?.name ?? "volunteer"}`}
+          >
+            <UserX className="h-3.5 w-3.5" />
+          </button>
         )}
       </div>
     </div>
@@ -1093,11 +1046,6 @@ export default function AssignmentsPage() {
                         >
                           {genderLetter}
                         </Badge>
-                      )}
-                      {v?.phone && (
-                        <div className="ml-auto shrink-0 flex items-center justify-center rounded p-1 text-muted-foreground">
-                          <PhoneCall className="h-3.5 w-3.5" />
-                        </div>
                       )}
                     </div>
                   </div>
