@@ -124,7 +124,7 @@ export default function DriveDetailPage() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteInfo, setDeleteInfo] = useState<{ assignmentCount: number; availabilityCount: number } | null>(null);
-  const [view, setView] = useState<DriveView>("overview");
+  const [view, setView] = useState<DriveView>("assignments");
 
   useEffect(() => {
     async function load() {
@@ -374,19 +374,7 @@ export default function DriveDetailPage() {
             Drive views
           </span>
           <div className="flex flex-wrap gap-1.5 rounded-full bg-muted/80 p-1">
-            <Button
-              type="button"
-              size="sm"
-              variant={view === "overview" ? "default" : "outline"}
-              className={`h-7 rounded-full px-3 text-xs font-medium ${
-                view === "overview"
-                  ? ""
-                  : "border-border/50 bg-background/50 hover:bg-muted/80 hover:border-border/60"
-              }`}
-              onClick={() => setView("overview")}
-            >
-              Overview
-            </Button>
+            {/* Overview tab temporarily disabled */}
             <Button
               type="button"
               size="sm"
@@ -413,19 +401,7 @@ export default function DriveDetailPage() {
             >
               Volunteers
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant={view === "live" ? "default" : "outline"}
-              className={`h-7 rounded-full px-3 text-xs font-medium ${
-                view === "live"
-                  ? ""
-                  : "border-border/50 bg-background/50 hover:bg-muted/80 hover:border-border/60"
-              }`}
-              onClick={() => setView("live")}
-            >
-              Live Dashboard
-            </Button>
+            {/* Live Dashboard tab temporarily disabled */}
             <Button
               type="button"
               size="sm"
@@ -503,7 +479,8 @@ export default function DriveDetailPage() {
 
       {/* View content */}
       <section className="space-y-6">
-        {view === "overview" && (
+        {/* Overview temporarily disabled */}
+        {false && view === "overview" && (
           <div className="grid gap-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1.4fr)]">
             <div className="space-y-4">
               <Card>
@@ -648,11 +625,7 @@ export default function DriveDetailPage() {
           </div>
         )}
 
-        {view === "live" && (
-          <div className="rounded-2xl border bg-card/60 p-4 md:p-6">
-            <LiveDashboardPage />
-          </div>
-        )}
+        {/* Live Dashboard temporarily disabled */}
 
         {view === "whatsapp" && (
           <div className="rounded-2xl border bg-card/60 p-4 md:p-6">
