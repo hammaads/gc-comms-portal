@@ -42,7 +42,7 @@ import { toast } from "sonner";
 import AssignmentsPage from "./assignments/page";
 import VolunteersPage from "./volunteers/page";
 import LiveDashboardPage from "./live/page";
-import RemindersPage from "./reminders/page";
+import WhatsAppPage from "./whatsapp/page";
 import CallCenterPage from "./calls/page";
 
 const LocationMap = dynamic(
@@ -53,7 +53,7 @@ const LocationMap = dynamic(
   { ssr: false },
 );
 
-type DriveView = "overview" | "assignments" | "volunteers" | "live" | "reminders" | "calls";
+type DriveView = "overview" | "assignments" | "volunteers" | "live" | "whatsapp" | "calls";
 
 type DriveStatus = "draft" | "open" | "in_progress" | "completed" | "cancelled";
 
@@ -429,15 +429,15 @@ export default function DriveDetailPage() {
             <Button
               type="button"
               size="sm"
-              variant={view === "reminders" ? "default" : "outline"}
+              variant={view === "whatsapp" ? "default" : "outline"}
               className={`h-7 rounded-full px-3 text-xs font-medium ${
-                view === "reminders"
+                view === "whatsapp"
                   ? ""
                   : "border-border/50 bg-background/50 hover:bg-muted/80 hover:border-border/60"
               }`}
-              onClick={() => setView("reminders")}
+              onClick={() => setView("whatsapp")}
             >
-              Reminders
+              WhatsApp
             </Button>
             <Button
               type="button"
@@ -654,9 +654,9 @@ export default function DriveDetailPage() {
           </div>
         )}
 
-        {view === "reminders" && (
+        {view === "whatsapp" && (
           <div className="rounded-2xl border bg-card/60 p-4 md:p-6">
-            <RemindersPage />
+            <WhatsAppPage />
           </div>
         )}
 
