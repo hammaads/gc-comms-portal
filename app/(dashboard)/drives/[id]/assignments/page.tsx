@@ -13,7 +13,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Dialog,
   DialogContent,
@@ -779,7 +778,7 @@ export default function AssignmentsPage() {
           </div>
         </div>
         <div
-          className="grid gap-4 pb-2"
+          className="grid gap-3 pb-2"
           style={{
             gridTemplateColumns: `repeat(auto-fit, minmax(${DUTY_COLUMN_MIN_WIDTH_PX}px, 1fr))`,
           }}
@@ -795,35 +794,36 @@ export default function AssignmentsPage() {
   }
 
   return (
-    <div className="space-y-4 page-fade-in">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl font-bold">Duty Board</h1>
-        <div className="flex flex-wrap gap-2">
-          <Button onClick={openAddVolunteerModal} variant="outline">
-            <UserPlus className="mr-2 h-4 w-4" />
+    <div className="space-y-3 page-fade-in">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <h1 className="text-lg font-semibold">Duty Board</h1>
+        <div className="flex flex-wrap gap-1.5">
+          <Button onClick={openAddVolunteerModal} variant="outline" size="sm">
+            <UserPlus className="mr-1.5 h-3.5 w-3.5" />
             Add Volunteer
           </Button>
-          <Button onClick={openCapacityModal} variant="outline">
-            <Settings className="mr-2 h-4 w-4" />
-            Edit Capacities
+          <Button onClick={openCapacityModal} variant="outline" size="sm">
+            <Settings className="mr-1.5 h-3.5 w-3.5" />
+            Capacities
           </Button>
-          <Button onClick={handleAutoAssign} disabled={assigning}>
+          <Button onClick={handleAutoAssign} disabled={assigning} size="sm">
             {assigning ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
             ) : (
-              <Wand2 className="mr-2 h-4 w-4" />
+              <Wand2 className="mr-1.5 h-3.5 w-3.5" />
             )}
             Auto-Assign
           </Button>
           <Button
             variant="outline"
+            size="sm"
             onClick={refreshKanban}
             disabled={refreshing}
           >
             {refreshing ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
             ) : (
-              <RefreshCw className="mr-2 h-4 w-4" />
+              <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
             )}
             Refresh
           </Button>
@@ -838,7 +838,7 @@ export default function AssignmentsPage() {
         onDragEnd={handleDragEnd}
       >
         <div
-          className="grid gap-4 pb-2"
+          className="grid gap-3 pb-2"
           style={{
             gridTemplateColumns: `repeat(auto-fit, minmax(${DUTY_COLUMN_MIN_WIDTH_PX}px, 1fr))`,
           }}
@@ -852,7 +852,7 @@ export default function AssignmentsPage() {
               isOver && "ring-2 ring-amber-500/50 ring-offset-2 ring-offset-background"
             )}
           >
-            <CardHeader className="pb-2">
+            <CardHeader className="px-3 py-2">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <UserX className="h-4 w-4 shrink-0 text-amber-500" />
@@ -869,7 +869,7 @@ export default function AssignmentsPage() {
               </p>
             </CardHeader>
             <CardContent>
-              <ScrollArea className="h-[300px]">
+              <div className="max-h-[300px] overflow-y-auto">
                 <SortableContext
                   items={waitlisted.map((a) => a.id)}
                   strategy={verticalListSortingStrategy}
@@ -888,13 +888,13 @@ export default function AssignmentsPage() {
                     )}
                     {waitlisted.length === 0 &&
                     !(activeId && overDropTarget?.dutyId === "unassigned") && (
-                      <p className="text-center text-xs text-muted-foreground py-4">
+                      <p className="text-center text-xs text-muted-foreground py-2">
                         No unassigned
                       </p>
                     )}
                   </div>
                 </SortableContext>
-              </ScrollArea>
+              </div>
             </CardContent>
           </Card>
             )}
@@ -924,7 +924,7 @@ export default function AssignmentsPage() {
                   isOver && "ring-2 ring-primary/50 ring-offset-2 ring-offset-background"
                 )}
               >
-                <CardHeader className="pb-2">
+                <CardHeader className="px-3 py-2">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-sm">
                       {dd.duties?.name}
@@ -980,7 +980,7 @@ export default function AssignmentsPage() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <ScrollArea className="h-[300px]">
+                  <div className="max-h-[300px] overflow-y-auto">
                     <SortableContext
                       items={dutyAssignments.map((a) => a.id)}
                       strategy={verticalListSortingStrategy}
@@ -999,13 +999,13 @@ export default function AssignmentsPage() {
                         )}
                         {dutyAssignments.length === 0 &&
                           !(activeId && overDropTarget?.dutyId === dd.duty_id) && (
-                          <p className="text-center text-xs text-muted-foreground py-4">
+                          <p className="text-center text-xs text-muted-foreground py-2">
                             No volunteers
                           </p>
                         )}
                       </div>
                     </SortableContext>
-                  </ScrollArea>
+                  </div>
                 </CardContent>
               </Card>
                 )}
