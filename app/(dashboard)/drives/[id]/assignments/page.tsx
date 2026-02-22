@@ -145,9 +145,11 @@ function DroppableColumn({
 function VolunteerCard({
   assignment,
   isDragging,
+  onCancel,
 }: {
   assignment: Assignment;
   isDragging?: boolean;
+  onCancel?: (assignmentId: string) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition } =
     useSortable({ id: assignment.id });
@@ -175,11 +177,16 @@ function VolunteerCard({
     }
   };
 
+  const isCancelled = assignment.status === "cancelled";
+
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className="flex items-center gap-2 rounded-md border border-border/80 bg-card px-2 py-1.5 text-xs"
+      className={cn(
+        "group flex items-center gap-2 rounded-md border border-border/80 bg-card px-2 py-1.5 text-xs",
+        isCancelled && "opacity-40",
+      )}
     >
       <button
         {...attributes}
@@ -191,7 +198,10 @@ function VolunteerCard({
       </button>
       <div className="min-w-0 flex-1 flex items-center gap-2 flex-nowrap">
         <span
-          className="min-w-0 flex-1 truncate text-xs font-medium text-foreground"
+          className={cn(
+            "min-w-0 flex-1 truncate text-xs font-medium text-foreground",
+            isCancelled && "line-through",
+          )}
           title={v?.name ?? undefined}
         >
           {truncateVolunteerName(v?.name)}
@@ -236,6 +246,26 @@ function VolunteerCard({
           >
             {genderLetter}
           </Badge>
+        )}
+        {onCancel && !isCancelled && (
+          <TooltipProvider delayDuration={200}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onCancel(assignment.id);
+                  }}
+                  className="shrink-0 hidden items-center justify-center rounded p-1 text-muted-foreground hover:bg-red-500/10 hover:text-red-600 group-hover:flex"
+                  aria-label={`Cancel ${v?.name ?? "volunteer"}`}
+                >
+                  <UserX className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top">Cancel assignment</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         )}
       </div>
     </div>
@@ -532,6 +562,38 @@ export default function AssignmentsPage() {
     } finally {
       setAssigning(false);
     }
+  }
+
+  async function handleCancelAssignment(assignmentId: string) {
+    const assignment = assignments.find((a) => a.id === assignmentId);
+    const name = assignment?.volunteers?.name ?? "this volunteer";
+    toast(`Cancel ${name}'s assignment?`, {
+      action: {
+        label: "Cancel",
+        onClick: async () => {
+          const { error } = await supabase
+            .from("assignments")
+            .update({ status: "cancelled" })
+            .eq("id", assignmentId);
+          if (error) {
+            toast.error("Failed to cancel assignment");
+            return;
+          }
+          toast.success(`${name}'s assignment cancelled`);
+          // Auto-promote next waitlisted volunteer
+          try {
+            await fetch("/api/assignments/batch", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ driveId }),
+            });
+          } catch {
+            // Non-critical
+          }
+          loadData();
+        },
+      },
+    });
   }
 
   function openCapacityModal() {
@@ -867,6 +929,7 @@ export default function AssignmentsPage() {
                           key={a.id}
                           assignment={a}
                           isDragging={activeId === a.id}
+                          onCancel={handleCancelAssignment}
                         />
                       ))
                     )}
@@ -977,6 +1040,7 @@ export default function AssignmentsPage() {
                               key={a.id}
                               assignment={a}
                               isDragging={activeId === a.id}
+                              onCancel={handleCancelAssignment}
                             />
                           ))
                         )}
