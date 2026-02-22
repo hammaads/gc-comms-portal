@@ -171,12 +171,14 @@ function ReminderCard({
   onSaved,
   onDeleted,
   driveId,
+  sunsetTime,
 }: {
   reminder: Tables<"reminder_schedules"> | null;
   onCreated: () => void;
   onSaved: () => void;
   onDeleted: () => void;
   driveId: string;
+  sunsetTime: string | null;
 }) {
   const supabase = createClient();
   const [creating, setCreating] = useState(false);
@@ -288,6 +290,21 @@ function ReminderCard({
             <span className="text-sm text-muted-foreground">
               hours before sunset
             </span>
+            {sunsetTime && hours > 0 && (() => {
+              const [h, m] = sunsetTime.split(":").map(Number);
+              const sunsetMinutes = h * 60 + m;
+              const sendMinutes = sunsetMinutes - hours * 60;
+              if (sendMinutes < 0) return null;
+              const sendH = Math.floor(sendMinutes / 60);
+              const sendM = Math.round(sendMinutes % 60);
+              const ampm = sendH >= 12 ? "PM" : "AM";
+              const h12 = sendH % 12 || 12;
+              return (
+                <span className="text-sm font-medium text-foreground">
+                  = {h12}:{String(sendM).padStart(2, "0")} {ampm}
+                </span>
+              );
+            })()}
           </div>
           <div className="ml-auto flex items-center gap-2">
             {isReadOnly && (
@@ -933,6 +950,7 @@ export default function WhatsAppPage() {
           onSaved={loadData}
           onDeleted={loadData}
           driveId={driveId}
+          sunsetTime={driveInfo?.sunset_time ?? null}
         />
 
         {/* Section 2: Delivery Summary */}
