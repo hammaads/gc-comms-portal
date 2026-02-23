@@ -19,32 +19,61 @@ export default function RemindersPage() {
   const [reminders, setReminders] = useState<Tables<"reminder_schedules">[]>(
     [],
   );
+  const [driveInfo, setDriveInfo] = useState<{
+    sunset_time: string | null;
+    drive_date: string | null;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
 
+  function computeScheduledAt(hours: number): string | null {
+    const sunsetTime = driveInfo?.sunset_time;
+    const driveDate = driveInfo?.drive_date;
+    if (!sunsetTime || !driveDate || hours <= 0) return null;
+    const [h, m] = sunsetTime.split(":").map(Number);
+    const sendMinutes = h * 60 + m - hours * 60;
+    if (sendMinutes < 0) return null;
+    const sendH = Math.floor(sendMinutes / 60);
+    const sendM = Math.round(sendMinutes % 60);
+    return new Date(
+      `${driveDate}T${String(sendH).padStart(2, "0")}:${String(sendM).padStart(2, "0")}:00+05:00`,
+    ).toISOString();
+  }
+
   useEffect(() => {
-    loadReminders();
+    loadData();
   }, [driveId]);
 
-  async function loadReminders() {
-    const { data } = await supabase
-      .from("reminder_schedules")
-      .select("*")
-      .eq("drive_id", driveId)
-      .order("hours_before_sunset", { ascending: false });
-    if (data) setReminders(data);
+  async function loadData() {
+    const [reminderRes, driveRes] = await Promise.all([
+      supabase
+        .from("reminder_schedules")
+        .select("*")
+        .eq("drive_id", driveId)
+        .order("hours_before_sunset", { ascending: false }),
+      supabase
+        .from("drives")
+        .select("sunset_time, drive_date")
+        .eq("id", driveId)
+        .single(),
+    ]);
+    if (reminderRes.data) setReminders(reminderRes.data);
+    if (driveRes.data) setDriveInfo(driveRes.data);
     setLoading(false);
   }
 
   async function addReminder() {
+    const defaultHours = 2;
+    const scheduledAt = computeScheduledAt(defaultHours);
     const { error } = await supabase.from("reminder_schedules").insert({
       drive_id: driveId,
       reminder_type: "custom",
-      hours_before_sunset: 2,
+      hours_before_sunset: defaultHours,
       message_template:
         "Reminder: {name}, you are assigned to {duty} for {drive_name} at {location}. Sunset at {sunset_time}.",
+      ...(scheduledAt && { scheduled_at: scheduledAt }),
     });
     if (error) toast.error(error.message);
-    else loadReminders();
+    else loadData();
   }
 
   async function updateReminder(
@@ -52,18 +81,24 @@ export default function RemindersPage() {
     field: string,
     value: string | number,
   ) {
+    const updates: Record<string, string | number> = { [field]: value };
+    // Recalculate scheduled_at when hours change
+    if (field === "hours_before_sunset" && typeof value === "number") {
+      const scheduledAt = computeScheduledAt(value);
+      if (scheduledAt) updates.scheduled_at = scheduledAt;
+    }
     await supabase
       .from("reminder_schedules")
-      .update({ [field]: value })
+      .update(updates)
       .eq("id", id);
     toast.success("Updated");
-    loadReminders();
+    loadData();
   }
 
   async function deleteReminder(id: string) {
     await supabase.from("reminder_schedules").delete().eq("id", id);
     toast.success("Deleted");
-    loadReminders();
+    loadData();
   }
 
   if (loading) {
