@@ -144,7 +144,14 @@ export class WhatsAppManager {
         if (m.type !== "notify") return;
         for (const msg of m.messages) {
           if (msg.key.fromMe) continue;
-          await this.handleIncomingMessage(msg);
+          try {
+            await this.handleIncomingMessage(msg);
+          } catch (err) {
+            whatsappLogger.error(
+              { err, remoteJid: msg.key?.remoteJid, msgId: msg.key?.id },
+              "Error processing incoming message",
+            );
+          }
         }
       });
 
@@ -247,7 +254,16 @@ export class WhatsAppManager {
       msg.message?.conversation ||
       msg.message?.extendedTextMessage?.text ||
       "";
-    if (!text) return;
+
+    whatsappLogger.info(
+      { remoteJid, msgId, hasText: !!text, messageKeys: Object.keys(msg.message || {}) },
+      "Incoming WhatsApp message received",
+    );
+
+    if (!text) {
+      whatsappLogger.debug({ remoteJid, msgId }, "Skipping message with no text content");
+      return;
+    }
 
     // Bug fix #5: Normalize phone for lookup — try with and without "+"
     const rawPhone = remoteJid.split("@")[0];
@@ -265,7 +281,10 @@ export class WhatsAppManager {
       cancel_keywords: string[];
     } | null;
 
-    if (!whatsappConfig) return;
+    if (!whatsappConfig) {
+      whatsappLogger.warn("No WhatsApp config found in app_config — cannot process incoming message");
+      return;
+    }
 
     // Bug fix #5: Try both phone formats to find the volunteer
     let volunteer: { id: string } | null = null;
@@ -285,7 +304,15 @@ export class WhatsAppManager {
       volunteer = v2;
     }
 
-    if (!volunteer) return;
+    if (!volunteer) {
+      whatsappLogger.warn({ rawPhone, phoneWithPlus }, "Incoming message from unknown volunteer — phone not found");
+      return;
+    }
+
+    whatsappLogger.info(
+      { volunteerId: volunteer.id, rawPhone, text: text.substring(0, 100) },
+      "Processing incoming message from volunteer",
+    );
 
     // Bug fix #2: Exact word matching instead of substring includes
     const words = text.toLowerCase().trim().split(/\s+/);
@@ -298,6 +325,7 @@ export class WhatsAppManager {
     );
 
     if (isConfirm) {
+      whatsappLogger.info({ volunteerId: volunteer.id }, "Confirm keyword detected");
       // Bug fix #3: Only confirm the next upcoming drive, not all drives
       const { data: nextAssignment } = await this.supabase
         .from("assignments")
@@ -324,17 +352,25 @@ export class WhatsAppManager {
           whatsapp_message_id: msg.key.id,
         });
 
+        whatsappLogger.info(
+          { volunteerId: volunteer.id, assignmentId: nextAssignment.id, driveId: nextAssignment.drive_id },
+          "Assignment confirmed via WhatsApp",
+        );
+
         // Bug fix #6: Send confirmation reply
         try {
           await this.sendMessage(phoneWithPlus, "Your attendance has been confirmed. JazakAllah Khair!");
         } catch {
           // Non-critical — don't fail if reply doesn't send
         }
+      } else {
+        whatsappLogger.warn({ volunteerId: volunteer.id }, "Confirm keyword but no assigned assignment found");
       }
       return;
     }
 
     if (isCancel) {
+      whatsappLogger.info({ volunteerId: volunteer.id }, "Cancel keyword detected");
       // Bug fix #3: Only cancel the next upcoming drive assignment
       const { data: nextAssignment } = await this.supabase
         .from("assignments")
@@ -365,17 +401,25 @@ export class WhatsAppManager {
           whatsapp_message_id: msg.key.id,
         });
 
+        whatsappLogger.info(
+          { volunteerId: volunteer.id, assignmentId: nextAssignment.id, driveId: nextAssignment.drive_id },
+          "Assignment cancelled via WhatsApp",
+        );
+
         // Bug fix #6: Send cancellation reply
         try {
           await this.sendMessage(phoneWithPlus, "Your assignment has been cancelled. If this was a mistake, please reply with 'confirm'.");
         } catch {
           // Non-critical
         }
+      } else {
+        whatsappLogger.warn({ volunteerId: volunteer.id }, "Cancel keyword but no active assignment found");
       }
       return;
     }
 
     // Unrecognized message — just log it
+    whatsappLogger.info({ volunteerId: volunteer.id }, "No keyword match — logging inbound message");
     await this.supabase.from("communication_log").insert({
       volunteer_id: volunteer.id,
       channel: "whatsapp",
