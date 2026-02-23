@@ -77,6 +77,7 @@ type DriveInfo = {
   name: string;
   location_name: string | null;
   sunset_time: string | null;
+  drive_date: string | null;
 };
 
 // ─── Delivery Status Badge ───────────────────────────────────────────────────
@@ -233,6 +234,7 @@ function ReminderCard({
   onDeleted,
   driveId,
   sunsetTime,
+  driveDate,
 }: {
   reminder: Tables<"reminder_schedules"> | null;
   onCreated: () => void;
@@ -240,6 +242,7 @@ function ReminderCard({
   onDeleted: () => void;
   driveId: string;
   sunsetTime: string | null;
+  driveDate: string | null;
 }) {
   const supabase = createClient();
   const [creating, setCreating] = useState(false);
@@ -257,12 +260,31 @@ function ReminderCard({
 
   async function handleCreate() {
     setCreating(true);
+    const defaultHours = 2;
+
+    // Calculate scheduled_at from sunset time
+    let scheduledAt: string | undefined;
+    if (sunsetTime && driveDate) {
+      const [h, m] = sunsetTime.split(":").map(Number);
+      const sunsetMinutes = h * 60 + m;
+      const sendMinutes = sunsetMinutes - defaultHours * 60;
+      if (sendMinutes >= 0) {
+        const sendH = Math.floor(sendMinutes / 60);
+        const sendM = Math.round(sendMinutes % 60);
+        const scheduledDate = new Date(
+          `${driveDate}T${String(sendH).padStart(2, "0")}:${String(sendM).padStart(2, "0")}:00+05:00`,
+        );
+        scheduledAt = scheduledDate.toISOString();
+      }
+    }
+
     const { error } = await supabase.from("reminder_schedules").insert({
       drive_id: driveId,
       reminder_type: "custom",
-      hours_before_sunset: 2,
+      hours_before_sunset: defaultHours,
       message_template:
         "Reminder: {name}, you are assigned to {duty} for {drive_name} at {location}. Sunset at {sunset_time}.",
+      ...(scheduledAt !== undefined && { scheduled_at: scheduledAt }),
     });
     setCreating(false);
     if (error) {
@@ -276,11 +298,29 @@ function ReminderCard({
     if (!reminder) return;
     setSaveState("saving");
     setSaving(true);
+
+    // Recalculate scheduled_at from sunset time and hours
+    let scheduledAt: string | undefined;
+    if (sunsetTime && driveDate && hours > 0) {
+      const [h, m] = sunsetTime.split(":").map(Number);
+      const sunsetMinutes = h * 60 + m;
+      const sendMinutes = sunsetMinutes - hours * 60;
+      if (sendMinutes >= 0) {
+        const sendH = Math.floor(sendMinutes / 60);
+        const sendM = Math.round(sendMinutes % 60);
+        const scheduledDate = new Date(
+          `${driveDate}T${String(sendH).padStart(2, "0")}:${String(sendM).padStart(2, "0")}:00+05:00`,
+        );
+        scheduledAt = scheduledDate.toISOString();
+      }
+    }
+
     const { error } = await supabase
       .from("reminder_schedules")
       .update({
         hours_before_sunset: hours,
         message_template: template,
+        ...(scheduledAt !== undefined && { scheduled_at: scheduledAt }),
       })
       .eq("id", reminder.id);
     setSaving(false);
@@ -917,7 +957,7 @@ export default function WhatsAppPage() {
           .order("created_at"),
         supabase
           .from("drives")
-          .select("name, location_name, sunset_time")
+          .select("name, location_name, sunset_time, drive_date")
           .eq("id", driveId)
           .single(),
       ]);
@@ -1099,6 +1139,7 @@ export default function WhatsAppPage() {
           onDeleted={loadData}
           driveId={driveId}
           sunsetTime={driveInfo?.sunset_time ?? null}
+          driveDate={driveInfo?.drive_date ?? null}
         />
 
         {/* Section 2: Delivery Summary */}
