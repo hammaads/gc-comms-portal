@@ -83,60 +83,79 @@ type DriveInfo = {
 // ─── Delivery Status Badge ───────────────────────────────────────────────────
 
 function DeliveryStatusBadge({
-  reminder,
+  reminders,
 }: {
-  reminder: Tables<"reminder_schedules"> | null;
+  reminders: Tables<"reminder_schedules">[];
 }) {
-  if (reminder?.is_sent) {
+  if (reminders.length === 0) {
     return (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Badge
-            variant="outline"
-            className="gap-1 border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-          >
-            <CheckCircle2 className="h-3 w-3" />
-            Sent
-          </Badge>
-        </TooltipTrigger>
-        <TooltipContent>
-          Reminder sent
-          {reminder.sent_at &&
-            ` at ${new Date(reminder.sent_at).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" })}`}
-        </TooltipContent>
-      </Tooltip>
+      <Badge
+        variant="outline"
+        className="gap-1 border-border text-muted-foreground"
+      >
+        <Minus className="h-3 w-3" />
+        No reminder
+      </Badge>
     );
   }
 
-  if (reminder && !reminder.is_sent) {
-    return (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Badge
-            variant="outline"
-            className="gap-1 border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-          >
-            <Clock className="h-3 w-3" />
-            Pending
-          </Badge>
-        </TooltipTrigger>
-        <TooltipContent>
-          Reminder scheduled
-          {reminder.scheduled_at &&
-            ` for ${new Date(reminder.scheduled_at).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" })}`}
-        </TooltipContent>
-      </Tooltip>
-    );
-  }
+  const sentCount = reminders.filter((r) => r.is_sent).length;
+  const total = reminders.length;
+  const allSent = sentCount === total;
+
+  const lastSentAt = reminders
+    .filter((r) => r.sent_at)
+    .map((r) => r.sent_at!)
+    .sort()
+    .pop();
+
+  const nextScheduledAt = reminders
+    .filter((r) => !r.is_sent && r.scheduled_at)
+    .map((r) => r.scheduled_at!)
+    .sort()
+    .shift();
+
+  const label =
+    total === 1
+      ? allSent
+        ? "Sent"
+        : "Pending"
+      : `${sentCount}/${total} Sent`;
+
+  const tooltipText = allSent
+    ? (total === 1 ? "Reminder sent" : `All ${total} reminders sent`) +
+      (lastSentAt
+        ? ` at ${new Date(lastSentAt).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" })}`
+        : "")
+    : sentCount === 0
+      ? (total === 1 ? "Reminder scheduled" : `${total} reminders pending`) +
+        (nextScheduledAt
+          ? ` — next at ${new Date(nextScheduledAt).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" })}`
+          : "")
+      : `${sentCount} of ${total} reminders sent`;
 
   return (
-    <Badge
-      variant="outline"
-      className="gap-1 border-border text-muted-foreground"
-    >
-      <Minus className="h-3 w-3" />
-      No reminder
-    </Badge>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Badge
+          variant="outline"
+          className={cn(
+            "gap-1",
+            allSent
+              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+              : "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+          )}
+        >
+          {allSent ? (
+            <CheckCircle2 className="h-3 w-3" />
+          ) : (
+            <Clock className="h-3 w-3" />
+          )}
+          {label}
+        </Badge>
+      </TooltipTrigger>
+      <TooltipContent>{tooltipText}</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -916,9 +935,10 @@ export default function WhatsAppPage() {
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  const [reminder, setReminder] = useState<Tables<"reminder_schedules"> | null>(
-    null,
+  const [reminders, setReminders] = useState<Tables<"reminder_schedules">[]>(
+    [],
   );
+  const [addingReminder, setAddingReminder] = useState(false);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [driveInfo, setDriveInfo] = useState<DriveInfo | null>(null);
   const [welcomeMap, setWelcomeMap] = useState<Record<string, { status: string; error: string | null }>>({});
@@ -939,8 +959,7 @@ export default function WhatsAppPage() {
           .from("reminder_schedules")
           .select("*")
           .eq("drive_id", driveId)
-          .order("created_at")
-          .limit(1),
+          .order("hours_before_sunset", { ascending: false }),
         supabase
           .from("assignments")
           .select(
@@ -967,7 +986,7 @@ export default function WhatsAppPage() {
       if (commRes.error) throw commRes.error;
       if (driveRes.error) throw driveRes.error;
 
-      setReminder(reminderRes.data?.[0] ?? null);
+      setReminders(reminderRes.data ?? []);
       const assignData = assignRes.data as unknown as Assignment[];
       setAssignments(assignData);
       setDriveInfo(driveRes.data as DriveInfo);
@@ -1025,11 +1044,13 @@ export default function WhatsAppPage() {
     };
   }, [driveId, loadData]);
 
-  // Compute delivery stats
+  // Compute delivery stats (each reminder × each active volunteer = one message)
   const activeCount = assignments.filter((a) => a.status !== "cancelled").length;
+  const sentReminderCount = reminders.filter((r) => r.is_sent).length;
+  const pendingReminderCount = reminders.filter((r) => !r.is_sent).length;
   const stats = {
-    sent: reminder?.is_sent ? activeCount : 0,
-    pending: reminder && !reminder.is_sent ? activeCount : 0,
+    sent: sentReminderCount * activeCount,
+    pending: pendingReminderCount * activeCount,
     failed: 0,
   };
 
@@ -1047,10 +1068,44 @@ export default function WhatsAppPage() {
   }
 
   function getMessagePreview(assignment: Assignment): string {
-    if (reminder?.message_template) {
-      return interpolateTemplate(reminder.message_template, assignment);
+    const firstReminder = reminders[0];
+    if (firstReminder?.message_template) {
+      return interpolateTemplate(firstReminder.message_template, assignment);
     }
     return "";
+  }
+
+  async function handleAddReminder() {
+    setAddingReminder(true);
+    const defaultHours = 2;
+    let scheduledAt: string | undefined;
+    if (driveInfo?.sunset_time && driveInfo?.drive_date) {
+      const [h, m] = driveInfo.sunset_time.split(":").map(Number);
+      const sunsetMinutes = h * 60 + m;
+      const sendMinutes = sunsetMinutes - defaultHours * 60;
+      if (sendMinutes >= 0) {
+        const sendH = Math.floor(sendMinutes / 60);
+        const sendM = Math.round(sendMinutes % 60);
+        const scheduledDate = new Date(
+          `${driveInfo.drive_date}T${String(sendH).padStart(2, "0")}:${String(sendM).padStart(2, "0")}:00+05:00`,
+        );
+        scheduledAt = scheduledDate.toISOString();
+      }
+    }
+    const { error } = await supabase.from("reminder_schedules").insert({
+      drive_id: driveId,
+      reminder_type: "custom",
+      hours_before_sunset: defaultHours,
+      message_template:
+        "Reminder: {name}, you are assigned to {duty} for {drive_name} at {location}. Sunset at {sunset_time}.",
+      ...(scheduledAt !== undefined && { scheduled_at: scheduledAt }),
+    });
+    setAddingReminder(false);
+    if (error) {
+      toast.error(error.message);
+    } else {
+      loadData();
+    }
   }
 
   // ─── Loading state ─────────────────────────────────────────────────────────
@@ -1132,15 +1187,48 @@ export default function WhatsAppPage() {
         </div>
 
         {/* Section 1: Reminder Setup */}
-        <ReminderCard
-          reminder={reminder}
-          onCreated={loadData}
-          onSaved={loadData}
-          onDeleted={loadData}
-          driveId={driveId}
-          sunsetTime={driveInfo?.sunset_time ?? null}
-          driveDate={driveInfo?.drive_date ?? null}
-        />
+        <div className="space-y-3">
+          {reminders.length === 0 ? (
+            <ReminderCard
+              reminder={null}
+              onCreated={loadData}
+              onSaved={loadData}
+              onDeleted={loadData}
+              driveId={driveId}
+              sunsetTime={driveInfo?.sunset_time ?? null}
+              driveDate={driveInfo?.drive_date ?? null}
+            />
+          ) : (
+            <>
+              {reminders.map((r) => (
+                <ReminderCard
+                  key={r.id}
+                  reminder={r}
+                  onCreated={loadData}
+                  onSaved={loadData}
+                  onDeleted={loadData}
+                  driveId={driveId}
+                  sunsetTime={driveInfo?.sunset_time ?? null}
+                  driveDate={driveInfo?.drive_date ?? null}
+                />
+              ))}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleAddReminder}
+                disabled={addingReminder}
+                className="gap-1.5"
+              >
+                {addingReminder ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Plus className="h-3.5 w-3.5" />
+                )}
+                Add Reminder
+              </Button>
+            </>
+          )}
+        </div>
 
         {/* Section 2: Delivery Summary */}
         {assignments.length > 0 && (
@@ -1227,7 +1315,7 @@ export default function WhatsAppPage() {
                           </Badge>
                         ) : (
                           <DeliveryStatusBadge
-                            reminder={reminder}
+                            reminders={reminders}
                           />
                         )}
                       </TableCell>
@@ -1256,7 +1344,7 @@ export default function WhatsAppPage() {
           driveId={driveId}
           assignmentId={selectedAssignmentId}
           assignmentStatus={selectedAssignmentStatus}
-          reminder={reminder}
+          reminder={reminders[0] ?? null}
           onMessageSent={loadData}
           onAssignmentCancelled={() => {
             loadData();
