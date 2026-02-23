@@ -1,6 +1,8 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import qrcode from "qrcode-terminal";
 import { whatsappLogger } from "../lib/logger";
+import { MapCacheStore, MessageStore } from "./cache-store";
+import { SendQueue } from "./send-queue";
 
 // Fixed UUID for the singleton WhatsApp session row
 const SESSION_ID = "00000000-0000-0000-0000-000000000001";
@@ -16,8 +18,20 @@ export class WhatsAppManager {
   private reconnectAttempts: number = 0;
   private processedMessageIds = new Set<string>();
 
+  // Caches and queue for production hardening
+  private messageStore: MessageStore;
+  private sendQueue: SendQueue;
+  private groupMetadataCache = new Map<string, any>();
+  private msgRetryCounterCache: MapCacheStore;
+
   constructor(supabase: SupabaseClient) {
     this.supabase = supabase;
+    this.messageStore = new MessageStore();
+    this.sendQueue = new SendQueue({ delayMs: 1000, burstLimit: 5 });
+    this.msgRetryCounterCache = new MapCacheStore({
+      maxSize: 512,
+      defaultTtlMs: 10 * 60 * 1000, // 10 min
+    });
   }
 
   getStatus(): string {
@@ -31,6 +45,8 @@ export class WhatsAppManager {
       this.sock = null;
     }
     this.status = "disconnected";
+    this.connecting = false;
+    this.groupMetadataCache.clear();
     await this.updateSessionStatus("disconnected");
   }
 
@@ -46,11 +62,47 @@ export class WhatsAppManager {
     await this.disconnect();
     try {
       // Dynamic import for Baileys (ESM module)
-      const { default: makeWASocket, DisconnectReason } =
-        await import("baileys");
+      const {
+        default: makeWASocket,
+        DisconnectReason,
+        fetchLatestBaileysVersion,
+        isJidBroadcast,
+        isJidStatusBroadcast,
+        isJidNewsletter,
+        isJidMetaAI,
+      } = await import("baileys");
       const { useSupabaseAuthState } = await import("./supabase-auth-state");
 
       const { state, saveCreds } = await useSupabaseAuthState(this.supabase);
+
+      // Load rate limit config from DB
+      const { data: waConf } = await this.supabase
+        .from("app_config")
+        .select("value")
+        .eq("key", "whatsapp")
+        .single();
+      const rateConfig = waConf?.value as {
+        rate_limit_per_second?: number;
+        rate_limit_burst?: number;
+      } | null;
+      if (rateConfig?.rate_limit_per_second) {
+        const delayMs = Math.round(1000 / rateConfig.rate_limit_per_second);
+        this.sendQueue.updateConfig(delayMs, rateConfig.rate_limit_burst ?? 5);
+        whatsappLogger.info(
+          { delayMs, burst: rateConfig.rate_limit_burst },
+          "Send queue rate limit configured",
+        );
+      }
+
+      // Fetch latest WA Web version to avoid 405 errors
+      let version: [number, number, number] | undefined;
+      try {
+        const versionInfo = await fetchLatestBaileysVersion();
+        version = versionInfo.version;
+        whatsappLogger.info({ version }, "Fetched latest Baileys version");
+      } catch (err) {
+        whatsappLogger.warn({ err }, "Could not fetch latest version, using default");
+      }
 
       // Silence Baileys internal logs so QR code renders cleanly
       const pino = (await import("pino")).default;
@@ -59,6 +111,35 @@ export class WhatsAppManager {
       this.sock = makeWASocket({
         auth: state,
         logger: silentLogger,
+
+        // Version management: avoids 405 errors (issue #1913)
+        ...(version ? { version } : {}),
+
+        // Connection tuning
+        markOnlineOnConnect: false, // Don't suppress phone notifications
+        connectTimeoutMs: 45_000, // More forgiving than default 20s
+        keepAliveIntervalMs: 25_000, // Slightly tighter than default 30s
+        countryCode: "PK", // Pakistan phone number formatting
+
+        // Message retry support (solves "waiting for message" — issue #1767)
+        msgRetryCounterCache: this.msgRetryCounterCache,
+        getMessage: (key: any) => this.messageStore.getMessage(key),
+
+        // Group metadata cache (prevents rate limits/bans — issue #1166)
+        cachedGroupMetadata: (jid: string) =>
+          this.getCachedGroupMetadata(jid),
+
+        // Reduce protocol noise (reduces encryption errors — issue #1769)
+        shouldIgnoreJid: (jid: string) =>
+          !!(
+            isJidBroadcast(jid) ||
+            isJidStatusBroadcast(jid) ||
+            isJidNewsletter(jid) ||
+            isJidMetaAI(jid)
+          ),
+
+        // Bot doesn't need history sync
+        shouldSyncHistoryMessage: () => false,
       });
 
       this.sock.ev.on("creds.update", saveCreds);
@@ -81,9 +162,12 @@ export class WhatsAppManager {
         }
 
         if (connection === "close") {
-          const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
-          const errorMessage = (lastDisconnect?.error as any)?.message || "unknown";
-          const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+          const statusCode = (lastDisconnect?.error as any)?.output
+            ?.statusCode;
+          const errorMessage =
+            (lastDisconnect?.error as any)?.message || "unknown";
+          const shouldReconnect =
+            statusCode !== DisconnectReason.loggedOut;
 
           whatsappLogger.warn(
             { statusCode, errorMessage, attempt: this.reconnectAttempts },
@@ -91,13 +175,33 @@ export class WhatsAppManager {
           );
 
           this.status = "disconnected";
+          this.connecting = false;
           await this.updateSessionStatus("disconnected");
 
           if (!shouldReconnect) {
             whatsappLogger.info("Logged out — clearing auth state");
-            const { clearSupabaseAuthState } = await import("./supabase-auth-state");
+            const { clearSupabaseAuthState } = await import(
+              "./supabase-auth-state"
+            );
             await clearSupabaseAuthState(this.supabase);
             this.reconnectAttempts = 0;
+            return;
+          }
+
+          // Handle 405: WA Web version expired — next connect() will fetch fresh version
+          if (statusCode === 405) {
+            whatsappLogger.warn(
+              "405: WA Web version expired. Will reconnect with fresh version fetch.",
+            );
+          }
+
+          // Handle 515: restart required — reconnect immediately, don't count against attempts
+          if (statusCode === DisconnectReason.restartRequired) {
+            whatsappLogger.info(
+              "515: Restart required — reconnecting immediately",
+            );
+            this.reconnectAttempts = 0;
+            setTimeout(() => this.connect(), 1000);
             return;
           }
 
@@ -112,14 +216,25 @@ export class WhatsAppManager {
             return;
           }
 
-          const backoff = BASE_RECONNECT_DELAY * Math.pow(2, this.reconnectAttempts - 1);
+          // Exponential backoff with jitter to avoid thundering herd
+          const baseDelay =
+            BASE_RECONNECT_DELAY *
+            Math.pow(2, this.reconnectAttempts - 1);
+          const jitter = Math.floor(Math.random() * baseDelay * 0.3);
+          const delay = baseDelay + jitter;
+
           whatsappLogger.info(
-            { delay: backoff, attempt: this.reconnectAttempts, maxAttempts: MAX_RECONNECT_ATTEMPTS },
+            {
+              delay,
+              attempt: this.reconnectAttempts,
+              maxAttempts: MAX_RECONNECT_ATTEMPTS,
+            },
             "Reconnecting WhatsApp...",
           );
-          setTimeout(() => this.connect(), backoff);
+          setTimeout(() => this.connect(), delay);
         } else if (connection === "open") {
-          this.reconnectAttempts = 0; // Reset on successful connection
+          this.reconnectAttempts = 0;
+          this.connecting = false;
           this.status = "connected";
           const phoneNumber = this.sock?.user?.id?.split(":")[0] || "";
           await this.supabase
@@ -134,6 +249,24 @@ export class WhatsAppManager {
               { onConflict: "id" },
             );
           whatsappLogger.info({ phoneNumber }, "WhatsApp connected");
+
+          // Populate group metadata cache
+          try {
+            const groups = await this.sock.groupFetchAllParticipating();
+            this.groupMetadataCache.clear();
+            for (const [id, metadata] of Object.entries(groups)) {
+              this.groupMetadataCache.set(id, metadata);
+            }
+            whatsappLogger.info(
+              { groupCount: this.groupMetadataCache.size },
+              "Group metadata cache populated",
+            );
+          } catch (err) {
+            whatsappLogger.warn(
+              { err },
+              "Failed to populate group metadata cache",
+            );
+          }
         }
       });
 
@@ -153,7 +286,34 @@ export class WhatsAppManager {
         }
       });
 
-      this.connecting = false;
+      // Keep group metadata cache updated
+      this.sock.ev.on("groups.update", (updates: any[]) => {
+        for (const update of updates) {
+          const existing = this.groupMetadataCache.get(update.id);
+          if (existing) {
+            this.groupMetadataCache.set(update.id, {
+              ...existing,
+              ...update,
+            });
+          }
+        }
+      });
+
+      this.sock.ev.on(
+        "group-participants.update",
+        async ({ id }: { id: string }) => {
+          try {
+            // Re-fetch full metadata to keep participant list and addressing_mode in sync
+            const metadata = await this.sock.groupMetadata(id);
+            this.groupMetadataCache.set(id, metadata);
+          } catch (err) {
+            whatsappLogger.warn(
+              { err, groupId: id },
+              "Failed to refresh group metadata after participant update",
+            );
+          }
+        },
+      );
     } catch (error) {
       whatsappLogger.error({ err: error }, "WhatsApp connection error");
       this.status = "disconnected";
@@ -174,27 +334,46 @@ export class WhatsAppManager {
     if (!this.sock) throw new Error("WhatsApp not connected");
     const jid = phone.replace("+", "") + "@s.whatsapp.net";
 
-    // Send directly with a 15-second timeout
-    const timeout = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("Send timed out after 15s")), 15000),
-    );
-    await Promise.race([
-      this.sock.sendMessage(jid, { text: message }),
-      timeout,
-    ]);
+    await this.sendQueue.enqueue(async () => {
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error("Send timed out after 15s")),
+          15000,
+        ),
+      );
+      const sentMsg = await Promise.race([
+        this.sock.sendMessage(jid, { text: message }),
+        timeout,
+      ]);
+
+      // Store for Baileys retry mechanism
+      if (sentMsg?.key?.id && sentMsg?.message) {
+        this.messageStore.store(sentMsg.key.id, sentMsg.message);
+      }
+    }, `dm:${jid}`);
   }
 
-  async addToGroup(phone: string, groupJid: string): Promise<{ added: boolean; status?: number }> {
+  async addToGroup(
+    phone: string,
+    groupJid: string,
+  ): Promise<{ added: boolean; status?: number }> {
     if (!this.sock) throw new Error("WhatsApp not connected");
     const jid = phone.replace("+", "") + "@s.whatsapp.net";
     try {
-      const result = await this.sock.groupParticipantsUpdate(groupJid, [jid], "add");
+      const result = await this.sock.groupParticipantsUpdate(
+        groupJid,
+        [jid],
+        "add",
+      );
       const entry = Array.isArray(result) ? result[0] : undefined;
       const status = entry?.status ?? entry?.content?.attrs?.code;
       const statusNum = typeof status === "string" ? parseInt(status) : status;
       const added = statusNum === 200;
       if (!added) {
-        whatsappLogger.warn({ phone, groupJid, status: statusNum }, "Group add not successful");
+        whatsappLogger.warn(
+          { phone, groupJid, status: statusNum },
+          "Group add not successful",
+        );
       }
       return { added, status: statusNum };
     } catch (err) {
@@ -205,7 +384,15 @@ export class WhatsAppManager {
 
   async sendGroupMessage(groupJid: string, message: string): Promise<void> {
     if (!this.sock) throw new Error("WhatsApp not connected");
-    await this.sock.sendMessage(groupJid, { text: message });
+
+    await this.sendQueue.enqueue(async () => {
+      const sentMsg = await this.sock.sendMessage(groupJid, {
+        text: message,
+      });
+      if (sentMsg?.key?.id && sentMsg?.message) {
+        this.messageStore.store(sentMsg.key.id, sentMsg.message);
+      }
+    }, `group:${groupJid}`);
   }
 
   async getGroupInviteCode(groupJid: string): Promise<string | undefined> {
@@ -215,11 +402,40 @@ export class WhatsAppManager {
 
   async listGroups(): Promise<{ id: string; subject: string }[]> {
     if (!this.sock) throw new Error("WhatsApp not connected");
+
+    // Use cache if populated
+    if (this.groupMetadataCache.size > 0) {
+      return Array.from(this.groupMetadataCache.values()).map((g: any) => ({
+        id: g.id,
+        subject: g.subject,
+      }));
+    }
+
     const groups = await this.sock.groupFetchAllParticipating();
+    for (const [id, metadata] of Object.entries(groups)) {
+      this.groupMetadataCache.set(id, metadata);
+    }
     return Object.values(groups).map((g: any) => ({
       id: g.id,
       subject: g.subject,
     }));
+  }
+
+  private async getCachedGroupMetadata(
+    jid: string,
+  ): Promise<any | undefined> {
+    const cached = this.groupMetadataCache.get(jid);
+    if (cached) return cached;
+
+    // Cache miss: fetch and store
+    try {
+      if (!this.sock) return undefined;
+      const metadata = await this.sock.groupMetadata(jid);
+      this.groupMetadataCache.set(jid, metadata);
+      return metadata;
+    } catch {
+      return undefined;
+    }
   }
 
   private async handleIncomingMessage(msg: any): Promise<void> {
@@ -246,12 +462,20 @@ export class WhatsAppManager {
       "";
 
     whatsappLogger.info(
-      { remoteJid, msgId, hasText: !!text, messageKeys: Object.keys(msg.message || {}) },
+      {
+        remoteJid,
+        msgId,
+        hasText: !!text,
+        messageKeys: Object.keys(msg.message || {}),
+      },
       "Incoming WhatsApp message received",
     );
 
     if (!text) {
-      whatsappLogger.debug({ remoteJid, msgId }, "Skipping message with no text content");
+      whatsappLogger.debug(
+        { remoteJid, msgId },
+        "Skipping message with no text content",
+      );
       return;
     }
 
@@ -259,17 +483,29 @@ export class WhatsAppManager {
     let rawPhone: string;
     if (remoteJid.endsWith("@lid")) {
       try {
-        const phoneJid = await this.sock?.signalRepository?.lidMapping?.getPNForLID(remoteJid);
+        const phoneJid =
+          await this.sock?.signalRepository?.lidMapping?.getPNForLID(
+            remoteJid,
+          );
         if (phoneJid) {
           // phoneJid is like "14699272476:0@s.whatsapp.net" — extract phone before ":"
           rawPhone = phoneJid.split(":")[0];
-          whatsappLogger.info({ remoteJid, resolvedPhone: rawPhone }, "Resolved LID to phone number");
+          whatsappLogger.info(
+            { remoteJid, resolvedPhone: rawPhone },
+            "Resolved LID to phone number",
+          );
         } else {
-          whatsappLogger.warn({ remoteJid }, "Could not resolve LID to phone number — no mapping found");
+          whatsappLogger.warn(
+            { remoteJid },
+            "Could not resolve LID to phone number — no mapping found",
+          );
           return;
         }
       } catch (err) {
-        whatsappLogger.error({ err, remoteJid }, "Failed to resolve LID to phone number");
+        whatsappLogger.error(
+          { err, remoteJid },
+          "Failed to resolve LID to phone number",
+        );
         return;
       }
     } else {
@@ -290,7 +526,9 @@ export class WhatsAppManager {
     } | null;
 
     if (!whatsappConfig) {
-      whatsappLogger.warn("No WhatsApp config found in app_config — cannot process incoming message");
+      whatsappLogger.warn(
+        "No WhatsApp config found in app_config — cannot process incoming message",
+      );
       return;
     }
 
@@ -313,7 +551,10 @@ export class WhatsAppManager {
     }
 
     if (!volunteer) {
-      whatsappLogger.warn({ rawPhone, phoneWithPlus }, "Incoming message from unknown volunteer — phone not found");
+      whatsappLogger.warn(
+        { rawPhone, phoneWithPlus },
+        "Incoming message from unknown volunteer — phone not found",
+      );
       return;
     }
 
@@ -333,7 +574,10 @@ export class WhatsAppManager {
     );
 
     if (isConfirm) {
-      whatsappLogger.info({ volunteerId: volunteer.id }, "Confirm keyword detected");
+      whatsappLogger.info(
+        { volunteerId: volunteer.id },
+        "Confirm keyword detected",
+      );
       // Bug fix #3: Only confirm the next upcoming drive, not all drives
       const { data: nextAssignment } = await this.supabase
         .from("assignments")
@@ -347,7 +591,10 @@ export class WhatsAppManager {
       if (nextAssignment) {
         await this.supabase
           .from("assignments")
-          .update({ status: "confirmed", confirmed_at: new Date().toISOString() })
+          .update({
+            status: "confirmed",
+            confirmed_at: new Date().toISOString(),
+          })
           .eq("id", nextAssignment.id);
 
         // Bug fix #6: Include drive_id in log
@@ -361,24 +608,37 @@ export class WhatsAppManager {
         });
 
         whatsappLogger.info(
-          { volunteerId: volunteer.id, assignmentId: nextAssignment.id, driveId: nextAssignment.drive_id },
+          {
+            volunteerId: volunteer.id,
+            assignmentId: nextAssignment.id,
+            driveId: nextAssignment.drive_id,
+          },
           "Assignment confirmed via WhatsApp",
         );
 
         // Bug fix #6: Send confirmation reply
         try {
-          await this.sendMessage(phoneWithPlus, "Your attendance has been confirmed. JazakAllah Khair!");
+          await this.sendMessage(
+            phoneWithPlus,
+            "Your attendance has been confirmed. JazakAllah Khair!",
+          );
         } catch {
           // Non-critical — don't fail if reply doesn't send
         }
       } else {
-        whatsappLogger.warn({ volunteerId: volunteer.id }, "Confirm keyword but no assigned assignment found");
+        whatsappLogger.warn(
+          { volunteerId: volunteer.id },
+          "Confirm keyword but no assigned assignment found",
+        );
       }
       return;
     }
 
     if (isCancel) {
-      whatsappLogger.info({ volunteerId: volunteer.id }, "Cancel keyword detected");
+      whatsappLogger.info(
+        { volunteerId: volunteer.id },
+        "Cancel keyword detected",
+      );
       // Bug fix #3: Only cancel the next upcoming drive assignment
       const { data: nextAssignment } = await this.supabase
         .from("assignments")
@@ -410,24 +670,37 @@ export class WhatsAppManager {
         });
 
         whatsappLogger.info(
-          { volunteerId: volunteer.id, assignmentId: nextAssignment.id, driveId: nextAssignment.drive_id },
+          {
+            volunteerId: volunteer.id,
+            assignmentId: nextAssignment.id,
+            driveId: nextAssignment.drive_id,
+          },
           "Assignment cancelled via WhatsApp",
         );
 
         // Bug fix #6: Send cancellation reply
         try {
-          await this.sendMessage(phoneWithPlus, "Your assignment has been cancelled. If this was a mistake, please reply with 'confirm'.");
+          await this.sendMessage(
+            phoneWithPlus,
+            "Your assignment has been cancelled. If this was a mistake, please reply with 'confirm'.",
+          );
         } catch {
           // Non-critical
         }
       } else {
-        whatsappLogger.warn({ volunteerId: volunteer.id }, "Cancel keyword but no active assignment found");
+        whatsappLogger.warn(
+          { volunteerId: volunteer.id },
+          "Cancel keyword but no active assignment found",
+        );
       }
       return;
     }
 
     // Unrecognized message — just log it
-    whatsappLogger.info({ volunteerId: volunteer.id }, "No keyword match — logging inbound message");
+    whatsappLogger.info(
+      { volunteerId: volunteer.id },
+      "No keyword match — logging inbound message",
+    );
     await this.supabase.from("communication_log").insert({
       volunteer_id: volunteer.id,
       channel: "whatsapp",
@@ -445,5 +718,4 @@ export class WhatsAppManager {
         { onConflict: "id" },
       );
   }
-
 }
