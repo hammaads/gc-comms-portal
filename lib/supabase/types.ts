@@ -7,6 +7,8 @@ export type Json =
   | Json[]
 
 export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "14.1"
   }
@@ -250,9 +252,9 @@ export type Database = {
           id: string
           iftaar_time: string | null
           location_address: string | null
-          location_name: string | null
           location_lat: number | null
           location_lng: number | null
+          location_name: string | null
           luma_event_id: string | null
           name: string
           notes: string | null
@@ -260,8 +262,8 @@ export type Database = {
           status: Database["public"]["Enums"]["drive_status"]
           sunset_source: string | null
           sunset_time: string | null
-          volunteer_target: number | null
           updated_at: string
+          volunteer_target: number | null
         }
         Insert: {
           arrival_time?: string | null
@@ -271,9 +273,9 @@ export type Database = {
           id?: string
           iftaar_time?: string | null
           location_address?: string | null
-          location_name?: string | null
           location_lat?: number | null
           location_lng?: number | null
+          location_name?: string | null
           luma_event_id?: string | null
           name: string
           notes?: string | null
@@ -281,8 +283,8 @@ export type Database = {
           status?: Database["public"]["Enums"]["drive_status"]
           sunset_source?: string | null
           sunset_time?: string | null
-          volunteer_target?: number | null
           updated_at?: string
+          volunteer_target?: number | null
         }
         Update: {
           arrival_time?: string | null
@@ -292,9 +294,9 @@ export type Database = {
           id?: string
           iftaar_time?: string | null
           location_address?: string | null
-          location_name?: string | null
           location_lat?: number | null
           location_lng?: number | null
+          location_name?: string | null
           luma_event_id?: string | null
           name?: string
           notes?: string | null
@@ -302,8 +304,8 @@ export type Database = {
           status?: Database["public"]["Enums"]["drive_status"]
           sunset_source?: string | null
           sunset_time?: string | null
-          volunteer_target?: number | null
           updated_at?: string
+          volunteer_target?: number | null
         }
         Relationships: [
           {
@@ -431,6 +433,33 @@ export type Database = {
         }
         Relationships: []
       }
+      push_subscriptions: {
+        Row: {
+          auth_key: string
+          created_at: string
+          endpoint: string
+          id: string
+          p256dh_key: string
+          user_id: string
+        }
+        Insert: {
+          auth_key: string
+          created_at?: string
+          endpoint: string
+          id?: string
+          p256dh_key: string
+          user_id: string
+        }
+        Update: {
+          auth_key?: string
+          created_at?: string
+          endpoint?: string
+          id?: string
+          p256dh_key?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       reminder_schedules: {
         Row: {
           created_at: string
@@ -480,46 +509,46 @@ export type Database = {
       }
       scheduled_messages: {
         Row: {
-          id: string
-          drive_id: string | null
-          volunteer_id: string | null
-          group_jid: string | null
           channel: string
+          created_at: string
+          drive_id: string | null
+          error: string | null
+          group_jid: string | null
+          id: string
           message: string
+          retry_count: number
           scheduled_at: string
           sent_at: string | null
           status: string
-          error: string | null
-          retry_count: number
-          created_at: string
+          volunteer_id: string | null
         }
         Insert: {
-          id?: string
-          drive_id?: string | null
-          volunteer_id?: string | null
-          group_jid?: string | null
           channel?: string
+          created_at?: string
+          drive_id?: string | null
+          error?: string | null
+          group_jid?: string | null
+          id?: string
           message: string
+          retry_count?: number
           scheduled_at: string
           sent_at?: string | null
           status?: string
-          error?: string | null
-          retry_count?: number
-          created_at?: string
+          volunteer_id?: string | null
         }
         Update: {
-          id?: string
-          drive_id?: string | null
-          volunteer_id?: string | null
-          group_jid?: string | null
           channel?: string
+          created_at?: string
+          drive_id?: string | null
+          error?: string | null
+          group_jid?: string | null
+          id?: string
           message?: string
+          retry_count?: number
           scheduled_at?: string
           sent_at?: string | null
           status?: string
-          error?: string | null
-          retry_count?: number
-          created_at?: string
+          volunteer_id?: string | null
         }
         Relationships: [
           {
@@ -667,6 +696,42 @@ export type Database = {
         }
         Relationships: []
       }
+      whatsapp_auth_creds: {
+        Row: {
+          creds: Json
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          creds: Json
+          id?: string
+          updated_at?: string
+        }
+        Update: {
+          creds?: Json
+          id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      whatsapp_auth_keys: {
+        Row: {
+          id: string
+          type: string
+          value: Json
+        }
+        Insert: {
+          id: string
+          type: string
+          value: Json
+        }
+        Update: {
+          id?: string
+          type?: string
+          value?: Json
+        }
+        Relationships: []
+      }
       whatsapp_sessions: {
         Row: {
           created_at: string
@@ -710,6 +775,8 @@ export type Database = {
         }
         Returns: number
       }
+      show_limit: { Args: never; Returns: number }
+      show_trgm: { Args: { "": string }; Returns: string[] }
     }
     Enums: {
       assignment_status:
@@ -733,7 +800,12 @@ export type Database = {
       comm_channel: "whatsapp" | "ai_call" | "manual"
       drive_status: "draft" | "open" | "in_progress" | "completed" | "cancelled"
       gender: "male" | "female"
-      volunteer_source: "google_form" | "in_app_form" | "manual" | "bulk_import" | "luma"
+      volunteer_source:
+        | "google_form"
+        | "in_app_form"
+        | "manual"
+        | "bulk_import"
+        | "luma"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -742,20 +814,155 @@ export type Database = {
 }
 
 type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
+
 type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
 
 export type Tables<
-  TableName extends keyof DefaultSchema["Tables"]
-> = DefaultSchema["Tables"][TableName]["Row"]
+  DefaultSchemaTableNameOrOptions extends
+    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+      Row: infer R
+    }
+    ? R
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+        Row: infer R
+      }
+      ? R
+      : never
+    : never
 
 export type TablesInsert<
-  TableName extends keyof DefaultSchema["Tables"]
-> = DefaultSchema["Tables"][TableName]["Insert"]
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Insert: infer I
+    }
+    ? I
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Insert: infer I
+      }
+      ? I
+      : never
+    : never
 
 export type TablesUpdate<
-  TableName extends keyof DefaultSchema["Tables"]
-> = DefaultSchema["Tables"][TableName]["Update"]
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Update: infer U
+    }
+    ? U
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Update: infer U
+      }
+      ? U
+      : never
+    : never
 
 export type Enums<
-  EnumName extends keyof DefaultSchema["Enums"]
-> = DefaultSchema["Enums"][EnumName]
+  DefaultSchemaEnumNameOrOptions extends
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof DatabaseWithoutInternals },
+  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    : never = never,
+> = DefaultSchemaEnumNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    : never
+
+export type CompositeTypes<
+  PublicCompositeTypeNameOrOptions extends
+    | keyof DefaultSchema["CompositeTypes"]
+    | { schema: keyof DatabaseWithoutInternals },
+  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never = never,
+> = PublicCompositeTypeNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+    : never
+
+export const Constants = {
+  public: {
+    Enums: {
+      assignment_status: [
+        "assigned",
+        "confirmed",
+        "en_route",
+        "arrived",
+        "completed",
+        "cancelled",
+        "no_show",
+        "waitlisted",
+      ],
+      call_result: [
+        "confirmed",
+        "en_route",
+        "delayed",
+        "not_coming",
+        "no_answer",
+        "voicemail",
+        "failed",
+      ],
+      capacity_mode: ["linear", "tiered"],
+      comm_channel: ["whatsapp", "ai_call", "manual"],
+      drive_status: ["draft", "open", "in_progress", "completed", "cancelled"],
+      gender: ["male", "female"],
+      volunteer_source: [
+        "google_form",
+        "in_app_form",
+        "manual",
+        "bulk_import",
+        "luma",
+      ],
+    },
+  },
+} as const

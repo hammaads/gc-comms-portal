@@ -158,6 +158,7 @@ export async function queueWhatsAppWelcome(
   const railwayUrl = process.env.RAILWAY_SERVICE_URL;
   const railwaySecret = process.env.RAILWAY_API_SECRET;
   let groupLink = "";
+  let groupStatus: string | null = null;
   if (railwayUrl && railwaySecret && groupJid) {
     try {
       const res = await fetch(`${railwayUrl}/api/whatsapp/group/add`, {
@@ -166,44 +167,62 @@ export async function queueWhatsAppWelcome(
           "Content-Type": "application/json",
           Authorization: `Bearer ${railwaySecret}`,
         },
-        body: JSON.stringify({
-          phone,
-          groupJid,
-          name,
-          assignments,
-          welcomeTemplate: "__skip_dm__",
-        }),
+        body: JSON.stringify({ phone, groupJid }),
         signal: AbortSignal.timeout(15000),
       });
-      const data = await res.json().catch(() => ({}));
-      groupLink = (data as Record<string, unknown>).link as string || "";
+      const data = await res.json().catch(() => ({})) as Record<string, unknown>;
+      groupLink = (data.link as string) || "";
+
+      if (data.status === "added" || data.status === "already_in_group") {
+        groupStatus = "added";
+      } else if (groupLink) {
+        groupStatus = "invite_sent";
+      } else {
+        groupStatus = "failed";
+      }
     } catch (err) {
       console.error("[volunteer-pipeline] Group add failed:", err);
+      groupStatus = "failed";
     }
+
+    // Persist group-add result
+    await supabase
+      .from("volunteers")
+      .update({ whatsapp_group_status: groupStatus })
+      .eq("id", volunteerId);
   }
 
-  // 2. Queue single welcome DM (includes invite link if group-add failed)
+  // 2. Queue welcome DM using configured template
+  const template = whatsappConfig?.welcome_dm_template as string | undefined;
+  if (!template) return; // No template configured — skip sending
+
   const dutyLines =
     assignments.length > 0
       ? assignments.map((a) => `\u2022 ${a.drive}: ${a.duty}`).join("\n")
       : "";
 
-  const template = (whatsappConfig?.welcome_dm_template as string) || "";
-  const defaultMsg = groupLink
-    ? `Assalamu Alaikum!\n\nJazakAllah Khair for signing up as a volunteer for Grand Citizens Iftaar Drive.\n\nPlease join our volunteer group:\n${groupLink}`
-    : `Assalamu Alaikum!\n\nJazakAllah Khair for signing up as a volunteer for Grand Citizens Iftaar Drive. You have been added to the volunteer group.`;
   const message = template
-    ? template
-        .replace(/{name}/g, name)
-        .replace(/{assignments}/g, dutyLines)
-        .replace(/{group_link}/g, groupLink)
-    : defaultMsg;
+    .replace(/{name}/g, name)
+    .replace(/{assignments}/g, dutyLines);
+
+  const now = new Date().toISOString();
 
   await supabase.from("scheduled_messages").insert({
     volunteer_id: volunteerId,
     channel: "whatsapp",
     message,
-    scheduled_at: new Date().toISOString(),
+    scheduled_at: now,
     status: "pending",
   });
+
+  // 3. If volunteer wasn't added to the group, send invite link as a separate message
+  if (groupLink) {
+    await supabase.from("scheduled_messages").insert({
+      volunteer_id: volunteerId,
+      channel: "whatsapp",
+      message: groupLink,
+      scheduled_at: now,
+      status: "pending",
+    });
+  }
 }
