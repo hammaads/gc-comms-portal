@@ -880,7 +880,6 @@ export default function WhatsAppPage() {
     null,
   );
   const [assignments, setAssignments] = useState<Assignment[]>([]);
-  const [commLogs, setCommLogs] = useState<CommLog[]>([]);
   const [driveInfo, setDriveInfo] = useState<DriveInfo | null>(null);
   const [welcomeMap, setWelcomeMap] = useState<Record<string, { status: string; error: string | null }>>({});
 
@@ -931,7 +930,6 @@ export default function WhatsAppPage() {
       setReminder(reminderRes.data?.[0] ?? null);
       const assignData = assignRes.data as unknown as Assignment[];
       setAssignments(assignData);
-      setCommLogs(commRes.data as CommLog[]);
       setDriveInfo(driveRes.data as DriveInfo);
 
       // Fetch welcome message status for these volunteers
@@ -988,10 +986,6 @@ export default function WhatsAppPage() {
   }, [driveId, loadData]);
 
   // Compute delivery stats
-  function getVolunteerLogs(volunteerId: string) {
-    return commLogs.filter((l) => l.volunteer_id === volunteerId);
-  }
-
   const activeCount = assignments.filter((a) => a.status !== "cancelled").length;
   const stats = {
     sent: reminder?.is_sent ? activeCount : 0,
@@ -1013,9 +1007,6 @@ export default function WhatsAppPage() {
   }
 
   function getMessagePreview(assignment: Assignment): string {
-    const logs = getVolunteerLogs(assignment.volunteer_id);
-    const outbound = logs.findLast((l) => l.direction === "outbound");
-    if (outbound?.content) return outbound.content;
     if (reminder?.message_template) {
       return interpolateTemplate(reminder.message_template, assignment);
     }
@@ -1150,12 +1141,7 @@ export default function WhatsAppPage() {
               </TableHeader>
               <TableBody>
                 {assignments.map((a) => {
-                  const logs = getVolunteerLogs(a.volunteer_id);
-                  const outbound = logs.findLast(
-                    (l) => l.direction === "outbound",
-                  );
                   const preview = getMessagePreview(a);
-                  const isPreview = !outbound?.content;
 
                   return (
                     <TableRow
@@ -1206,14 +1192,7 @@ export default function WhatsAppPage() {
                       </TableCell>
                       <TableCell className="hidden max-w-[300px] truncate sm:table-cell">
                         {preview ? (
-                          <span
-                            className={cn(
-                              "text-sm",
-                              isPreview
-                                ? "italic text-muted-foreground"
-                                : "text-foreground",
-                            )}
-                          >
+                          <span className="text-sm italic text-muted-foreground">
                             {preview}
                           </span>
                         ) : (
