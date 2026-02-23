@@ -45,7 +45,6 @@ export class WhatsAppManager {
       this.sock = null;
     }
     this.status = "disconnected";
-    this.connecting = false;
     this.groupMetadataCache.clear();
     await this.updateSessionStatus("disconnected");
   }
@@ -302,6 +301,8 @@ export class WhatsAppManager {
       this.sock.ev.on(
         "group-participants.update",
         async ({ id }: { id: string }) => {
+          // Only re-fetch for groups we're already tracking
+          if (!this.groupMetadataCache.has(id)) return;
           try {
             // Re-fetch full metadata to keep participant list and addressing_mode in sync
             const metadata = await this.sock.groupMetadata(id);
