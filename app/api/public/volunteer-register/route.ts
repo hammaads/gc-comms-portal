@@ -246,4 +246,3 @@ async function queueWhatsAppWelcome(
     });
   }
 }
-

@@ -44,11 +44,12 @@ export async function updateSession(request: NextRequest) {
       request.nextUrl.pathname.startsWith(p + "/"),
   );
 
-  // Allow public paths and API routes for public signup
+  // Allow public paths, public API routes, and webhook endpoints
   if (
     !user &&
     !isPublicPath &&
-    !request.nextUrl.pathname.startsWith("/api/public")
+    !request.nextUrl.pathname.startsWith("/api/public") &&
+    !request.nextUrl.pathname.startsWith("/api/webhooks")
   ) {
     const url = request.nextUrl.clone();
     url.pathname = "/auth/login";
