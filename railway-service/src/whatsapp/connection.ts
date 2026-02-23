@@ -104,22 +104,20 @@ export class WhatsAppManager {
           this.reconnectAttempts++;
 
           if (this.reconnectAttempts > MAX_RECONNECT_ATTEMPTS) {
-            whatsappLogger.error(
+            whatsappLogger.warn(
               { attempts: this.reconnectAttempts },
-              "Max reconnect attempts reached — clearing auth state. Re-scan QR from admin panel.",
+              "Max reconnect attempts reached — deferring to health-check cron",
             );
-            const { clearSupabaseAuthState } = await import("./supabase-auth-state");
-            await clearSupabaseAuthState(this.supabase);
             this.reconnectAttempts = 0;
             return;
           }
 
-          const delay = BASE_RECONNECT_DELAY * Math.pow(2, this.reconnectAttempts - 1);
+          const backoff = BASE_RECONNECT_DELAY * Math.pow(2, this.reconnectAttempts - 1);
           whatsappLogger.info(
-            { delay, attempt: this.reconnectAttempts, maxAttempts: MAX_RECONNECT_ATTEMPTS },
+            { delay: backoff, attempt: this.reconnectAttempts, maxAttempts: MAX_RECONNECT_ATTEMPTS },
             "Reconnecting WhatsApp...",
           );
-          setTimeout(() => this.connect(), delay);
+          setTimeout(() => this.connect(), backoff);
         } else if (connection === "open") {
           this.reconnectAttempts = 0; // Reset on successful connection
           this.status = "connected";
@@ -165,18 +163,10 @@ export class WhatsAppManager {
   }
 
   async autoReconnect(): Promise<void> {
-    const { data: session } = await this.supabase
-      .from("whatsapp_sessions")
-      .select("status")
-      .eq("id", SESSION_ID)
-      .single();
-
-    if (session?.status === "connected" || session?.status === "qr_pending") {
-      try {
-        await this.connect();
-      } catch {
-        whatsappLogger.warn("Auto-reconnect failed, will retry");
-      }
+    try {
+      await this.connect();
+    } catch {
+      whatsappLogger.warn("Auto-reconnect failed, will retry next cycle");
     }
   }
 
@@ -456,7 +446,4 @@ export class WhatsAppManager {
       );
   }
 
-  private delay(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
 }

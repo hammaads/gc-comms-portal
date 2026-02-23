@@ -56,6 +56,8 @@ export function setupCronJobs(
 
         if (!assignments) continue;
 
+        let successCount = 0;
+
         for (const assignment of assignments) {
           const volunteer = assignment.volunteers as any;
           const duty = assignment.duties as any;
@@ -71,6 +73,7 @@ export function setupCronJobs(
 
           try {
             await whatsapp.sendMessage(volunteer.phone, message);
+            successCount++;
 
             await supabase.from("communication_log").insert({
               volunteer_id: assignment.volunteer_id,
@@ -88,11 +91,17 @@ export function setupCronJobs(
           }
         }
 
-        // Mark reminder as sent
-        await supabase
-          .from("reminder_schedules")
-          .update({ is_sent: true, sent_at: new Date().toISOString() })
-          .eq("id", reminder.id);
+        if (successCount > 0) {
+          await supabase
+            .from("reminder_schedules")
+            .update({ is_sent: true, sent_at: new Date().toISOString() })
+            .eq("id", reminder.id);
+        } else {
+          cronLogger.error(
+            { reminderId: reminder.id, driveId: reminder.drive_id },
+            "All reminder sends failed — will retry next cycle",
+          );
+        }
       }
     }, {
       schedule: { type: "crontab", value: "* * * * *" },
