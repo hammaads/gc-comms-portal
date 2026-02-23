@@ -1,7 +1,11 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/lib/supabase/types";
 import { revalidatePath } from "next/cache";
+
+type SupabaseClient = ReturnType<typeof createSupabaseClient<Database>>;
 
 /** Same formula as createDrive: sum of linear duty capacities for the given daig count. */
 export async function getSuggestedVolunteerTarget(
@@ -30,6 +34,110 @@ export async function getSuggestedVolunteerTarget(
   return total > 0 ? total : null;
 }
 
+/**
+ * Creates drive_duties for all active duties with calculated capacities.
+ * Reusable by both the createDrive server action and the Luma webhook handler.
+ */
+export async function createDriveDuties(
+  supabase: SupabaseClient,
+  driveId: string,
+  daigCount: number,
+): Promise<{ error?: string }> {
+  const { data: duties } = await supabase
+    .from("duties")
+    .select("id, slug")
+    .eq("is_active", true)
+    .order("display_order");
+
+  if (!duties || duties.length === 0) return {};
+
+  const { data: rules } = await supabase
+    .from("duty_capacity_rules")
+    .select("*");
+
+  const driveDuties = duties.map((duty) => {
+    const rule = rules?.find((r) => r.duty_id === duty.id);
+    let calculatedCapacity = 0;
+
+    if (rule) {
+      if (rule.capacity_mode === "linear") {
+        calculatedCapacity =
+          (rule.base_count || 0) +
+          Math.ceil((rule.per_daig_count || 0) * daigCount);
+      }
+    }
+
+    return {
+      drive_id: driveId,
+      duty_id: duty.id,
+      capacity_mode: (rule?.capacity_mode || "linear") as "linear" | "tiered",
+      calculated_capacity: calculatedCapacity,
+    };
+  });
+
+  const { error } = await supabase.from("drive_duties").insert(driveDuties);
+  if (error) return { error: error.message };
+  return {};
+}
+
+/**
+ * Creates default reminder schedules for a drive based on app_config.reminder_defaults.
+ * Reusable by both the createDrive server action and the Luma webhook handler.
+ */
+export async function createDefaultReminders(
+  supabase: SupabaseClient,
+  driveId: string,
+  driveDate: string,
+  sunsetTime: string | null,
+): Promise<void> {
+  if (!sunsetTime) return;
+
+  const { data: reminderConfig } = await supabase
+    .from("app_config")
+    .select("value")
+    .eq("key", "reminder_defaults")
+    .single();
+
+  if (!reminderConfig?.value) return;
+
+  const config = reminderConfig.value as {
+    reminders: Array<{
+      type: string;
+      hours_before_sunset: number;
+      template: string;
+    }>;
+  };
+
+  if (!config.reminders) return;
+
+  const [hours, minutes] = sunsetTime.split(":").map(Number);
+  const sunsetMinutes = hours * 60 + minutes;
+  const reminders = config.reminders
+    .map((r) => {
+      const reminderMinutes = sunsetMinutes - r.hours_before_sunset * 60;
+      if (reminderMinutes < 0) return null;
+      const rHours = Math.floor(reminderMinutes / 60);
+      const rMins = reminderMinutes % 60;
+      const scheduledDate = new Date(
+        `${driveDate}T${String(rHours).padStart(2, "0")}:${String(rMins).padStart(2, "0")}:00+05:00`,
+      );
+
+      return {
+        drive_id: driveId,
+        reminder_type: r.type,
+        hours_before_sunset: r.hours_before_sunset,
+        message_template: r.template,
+        scheduled_at: scheduledDate.toISOString(),
+      };
+    })
+    .filter((r): r is NonNullable<typeof r> => r !== null);
+
+  if (reminders.length > 0) {
+    const { error } = await supabase.from("reminder_schedules").insert(reminders);
+    if (error) console.error("[createDefaultReminders] Reminder insert failed:", error.message);
+  }
+}
+
 export async function createDrive(formData: FormData) {
   const supabase = await createClient();
 
@@ -49,6 +157,7 @@ export async function createDrive(formData: FormData) {
     locationLngRaw && locationLngRaw.trim() !== ""
       ? parseFloat(locationLngRaw)
       : null;
+  const arrivalTime = formData.get("arrival_time") as string | null;
   const sunsetTime = formData.get("sunset_time") as string | null;
   const sunsetSource = (formData.get("sunset_source") as string) || "aladhan";
   const status = (formData.get("status") as string) || "draft";
@@ -70,6 +179,7 @@ export async function createDrive(formData: FormData) {
       location_lat: locationLat,
       location_lng: locationLng,
       daig_count: daigCount,
+      arrival_time: arrivalTime || null,
       sunset_time: sunsetTime || null,
       sunset_source: sunsetSource,
       volunteer_target: volunteerTarget,
@@ -81,84 +191,10 @@ export async function createDrive(formData: FormData) {
 
   if (error) return { error: error.message };
 
-  // Auto-create drive_duties from active duties with calculated capacities
-  const { data: duties } = await supabase
-    .from("duties")
-    .select("id, slug")
-    .eq("is_active", true)
-    .order("display_order");
+  const dutiesResult = await createDriveDuties(supabase, drive.id, daigCount);
+  if (dutiesResult.error) return { error: `Drive created but duties failed: ${dutiesResult.error}` };
 
-  if (duties && duties.length > 0) {
-    const { data: rules } = await supabase
-      .from("duty_capacity_rules")
-      .select("*");
-
-    const driveDuties = duties.map((duty) => {
-      const rule = rules?.find((r) => r.duty_id === duty.id);
-      let calculatedCapacity = 0;
-
-      if (rule) {
-        if (rule.capacity_mode === "linear") {
-          calculatedCapacity =
-            (rule.base_count || 0) +
-            Math.ceil((rule.per_daig_count || 0) * daigCount);
-        }
-      }
-
-      return {
-        drive_id: drive.id,
-        duty_id: duty.id,
-        capacity_mode: (rule?.capacity_mode || "linear") as "linear" | "tiered",
-        calculated_capacity: calculatedCapacity,
-      };
-    });
-
-    const { error: dutiesError } = await supabase.from("drive_duties").insert(driveDuties);
-    if (dutiesError) return { error: `Drive created but duties failed: ${dutiesError.message}` };
-  }
-
-  // Create default reminder schedules
-  const { data: reminderConfig } = await supabase
-    .from("app_config")
-    .select("value")
-    .eq("key", "reminder_defaults")
-    .single();
-
-  if (reminderConfig?.value && sunsetTime) {
-    const config = reminderConfig.value as {
-      reminders: Array<{
-        type: string;
-        hours_before_sunset: number;
-        template: string;
-      }>;
-    };
-
-    if (config.reminders) {
-      const [hours, minutes] = sunsetTime.split(":").map(Number);
-      const sunsetMinutes = hours * 60 + minutes;
-      const reminders = config.reminders
-        .map((r) => {
-          const reminderMinutes = sunsetMinutes - r.hours_before_sunset * 60;
-          // Skip reminders that would be scheduled before midnight (negative time)
-          if (reminderMinutes < 0) return null;
-          const rHours = Math.floor(reminderMinutes / 60);
-          const rMins = reminderMinutes % 60;
-          const scheduledDate = new Date(`${driveDate}T${String(rHours).padStart(2, "0")}:${String(rMins).padStart(2, "0")}:00+05:00`);
-
-          return {
-            drive_id: drive.id,
-            reminder_type: r.type,
-            hours_before_sunset: r.hours_before_sunset,
-            message_template: r.template,
-            scheduled_at: scheduledDate.toISOString(),
-          };
-        })
-        .filter(Boolean);
-
-      const { error: reminderError } = await supabase.from("reminder_schedules").insert(reminders);
-      if (reminderError) console.error("[createDrive] Reminder insert failed:", reminderError.message);
-    }
-  }
+  await createDefaultReminders(supabase, drive.id, driveDate, sunsetTime);
 
   revalidatePath("/drives");
   return { data: drive };
@@ -175,6 +211,7 @@ export async function updateDrive(id: string, formData: FormData) {
     "location_address",
     "location_lat",
     "location_lng",
+    "arrival_time",
     "sunset_time",
     "sunset_source",
     "iftaar_time",

@@ -91,8 +91,8 @@ export default function SignupFormSettingsPage() {
   function copyLink() {
     const url =
       typeof window !== "undefined"
-        ? `${window.location.origin}/join`
-        : "/join";
+        ? `${window.location.origin}/volunteer`
+        : "/volunteer";
     navigator.clipboard.writeText(url);
     setCopied(true);
     toast.success("Link copied");
@@ -238,8 +238,8 @@ export default function SignupFormSettingsPage() {
         <CardContent className="flex items-center gap-2">
           <code className="flex-1 rounded-md border bg-muted px-3 py-2 text-sm">
             {typeof window !== "undefined"
-              ? `${window.location.origin}/join`
-              : "/join"}
+              ? `${window.location.origin}/volunteer`
+              : "/volunteer"}
           </code>
           <Button variant="outline" size="icon" onClick={copyLink}>
             {copied ? (

@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { createDrive, fetchSunsetTime, getSuggestedVolunteerTarget } from "../actions";
+import posthog from "posthog-js";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -82,6 +83,7 @@ export default function NewDrivePage() {
   const [loading, setLoading] = useState(false);
   const [fetchingSunset, setFetchingSunset] = useState(false);
   const [seasonId, setSeasonId] = useState("");
+  const [arrivalTime, setArrivalTime] = useState("");
   const [sunsetTime, setSunsetTime] = useState("");
   const [sunsetSource, setSunsetSource] = useState("aladhan");
   const [driveDate, setDriveDate] = useState("");
@@ -159,6 +161,7 @@ export default function NewDrivePage() {
 
     const formData = new FormData(e.currentTarget);
     formData.set("season_id", seasonId);
+    formData.set("arrival_time", arrivalTime);
     formData.set("sunset_time", sunsetTime);
     formData.set("sunset_source", sunsetSource);
 
@@ -168,6 +171,13 @@ export default function NewDrivePage() {
     if (result.error) {
       toast.error(result.error);
     } else {
+      posthog.capture("drive_created", {
+        drive_date: formData.get("drive_date"),
+        daig_count: Number(daigCount) || 0,
+        volunteer_target: Number(volunteerCount) || null,
+        status: formData.get("status"),
+        has_location: locationLat !== null && locationLng !== null,
+      });
       toast.success("Drive created successfully!");
       router.push("/drives");
     }
@@ -175,24 +185,25 @@ export default function NewDrivePage() {
 
   const parsedDaigCount = Number(daigCount) || 0;
 
-  // Attach Google Places Autocomplete to the Location Address field
+  // Attach Google Places Autocomplete once the library is available
   useEffect(() => {
     if (!locationAddressRef.current) return;
+    let cancelled = false;
 
-    function initAutocomplete() {
-      if (
-        typeof window === "undefined" ||
-        !(window as any).google ||
-        !(window as any).google.maps ||
-        !(window as any).google.maps.places
-      ) {
-        return false;
+    async function init() {
+      // Wait for the Google Maps core script to appear
+      while (!(window as any).google?.maps?.importLibrary) {
+        if (cancelled) return;
+        await new Promise((r) => setTimeout(r, 300));
       }
+      if (cancelled) return;
+
+      await google.maps.importLibrary("places");
+      if (cancelled || !locationAddressRef.current) return;
 
       const bounds = new google.maps.LatLngBounds(
-        // Rough bounding box around Karachi
-        { lat: 24.75, lng: 66.90 }, // SW
-        { lat: 25.10, lng: 67.30 }, // NE
+        { lat: 24.75, lng: 66.90 },
+        { lat: 25.10, lng: 67.30 },
       );
 
       const autocomplete = new google.maps.places.Autocomplete(
@@ -225,22 +236,10 @@ export default function NewDrivePage() {
           locationAddressRef.current.value = formatted;
         }
       });
-
-      return true;
     }
 
-    let done = initAutocomplete();
-    if (done) return;
-
-    const interval = setInterval(() => {
-      if (initAutocomplete()) {
-        clearInterval(interval);
-      }
-    }, 500);
-
-    return () => {
-      clearInterval(interval);
-    };
+    init();
+    return () => { cancelled = true; };
   }, []);
 
   return (
@@ -295,13 +294,26 @@ export default function NewDrivePage() {
                 />
               </FormField>
 
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-4 md:grid-cols-3">
                 <FormField label="Date" htmlFor="drive_date" required>
                   <input type="hidden" name="drive_date" value={driveDate} />
                   <DatePicker
                     id="drive_date"
                     value={driveDate}
                     onChange={handleDateChange}
+                  />
+                </FormField>
+                <FormField label="Arrival Time" htmlFor="arrival_time">
+                  <input
+                    type="hidden"
+                    name="arrival_time"
+                    value={arrivalTime}
+                  />
+                  <TimePicker
+                    id="arrival_time"
+                    value={arrivalTime}
+                    onChange={setArrivalTime}
+                    placeholder="Pick arrival time"
                   />
                 </FormField>
                 <FormField

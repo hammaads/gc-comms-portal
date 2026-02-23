@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { normalizePhone } from "@/lib/utils";
+import posthog from "posthog-js";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -38,20 +39,30 @@ export default function NewVolunteerPage() {
     const formData = new FormData(e.currentTarget);
     const phone = normalizePhone(formData.get("phone") as string);
 
-    const { error } = await supabase.from("volunteers").insert({
-      phone,
-      name: formData.get("name") as string,
-      email: (formData.get("email") as string) || null,
-      gender: formData.get("gender") as "male" | "female",
-      organization: (formData.get("organization") as string) || null,
-      source: "manual" as const,
-      notes: (formData.get("notes") as string) || null,
-    });
+    const { error } = await supabase
+      .from("volunteers")
+      .upsert(
+        {
+          phone,
+          name: (formData.get("name") as string).trim(),
+          email: (formData.get("email") as string) || null,
+          gender: formData.get("gender") as "male" | "female",
+          organization: (formData.get("organization") as string) || null,
+          source: "manual" as const,
+          notes: (formData.get("notes") as string) || null,
+        },
+        { onConflict: "phone" },
+      );
 
     setLoading(false);
     if (error) {
       toast.error(error.message);
     } else {
+      posthog.capture("volunteer_added_to_system", {
+        gender: formData.get("gender"),
+        has_organization: !!(formData.get("organization") as string),
+        source: "manual",
+      });
       toast.success("Volunteer added");
       router.push("/volunteers");
     }
@@ -72,8 +83,15 @@ export default function NewVolunteerPage() {
               <Input
                 id="phone"
                 name="phone"
+                type="tel"
+                inputMode="numeric"
+                pattern="[0-9]*"
                 placeholder="03XX-XXXXXXX"
                 required
+                onInput={(e) => {
+                  const input = e.target as HTMLInputElement;
+                  input.value = input.value.replace(/[^0-9]/g, "");
+                }}
               />
             </FormField>
             <FormField label="Email" htmlFor="email">

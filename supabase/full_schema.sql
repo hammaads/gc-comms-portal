@@ -48,6 +48,8 @@ create table public.volunteers (
   updated_at timestamptz not null default now()
 );
 
+create unique index volunteers_phone_unique on public.volunteers (phone);
+
 create trigger handle_volunteers_updated_at
   before update on public.volunteers
   for each row
@@ -64,6 +66,7 @@ create table public.drives (
   location_address text,
   location_lat double precision,
   location_lng double precision,
+  arrival_time time,
   sunset_time time,
   sunset_source text,
   iftaar_time time,
@@ -170,9 +173,14 @@ create table public.assignments (
   checked_in_at timestamptz,
   cancelled_at timestamptz,
   cancellation_reason text,
+  message_sent_override boolean,
+  message_acknowledged_override boolean,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+comment on column public.assignments.message_sent_override is 'Manual override: null = auto from communication_log, true/false = force value';
+comment on column public.assignments.message_acknowledged_override is 'Manual override: null = auto from confirmed_at, true/false = force value';
 
 create index assignments_drive_id_idx on public.assignments (drive_id);
 create index assignments_volunteer_id_idx on public.assignments (volunteer_id);
@@ -255,7 +263,32 @@ create trigger handle_reminder_schedules_updated_at
   before update on public.reminder_schedules
   for each row
   execute function extensions.moddatetime(updated_at);
--- Migration 15: Google Sheets Sync table
+-- Migration 15: Scheduled Messages table
+create table public.scheduled_messages (
+  id uuid primary key default gen_random_uuid(),
+  drive_id uuid references public.drives(id) on delete set null,
+  volunteer_id uuid references public.volunteers(id) on delete cascade,
+  group_jid text,
+  channel text not null default 'whatsapp',
+  message text not null,
+  scheduled_at timestamptz not null,
+  sent_at timestamptz,
+  status text not null default 'pending',
+  error text,
+  created_at timestamptz not null default now()
+);
+
+create index idx_scheduled_messages_pending
+  on public.scheduled_messages (scheduled_at)
+  where status = 'pending';
+
+create index idx_scheduled_messages_drive
+  on public.scheduled_messages (drive_id)
+  where drive_id is not null;
+
+comment on table public.scheduled_messages is 'Queue of scheduled WhatsApp messages to volunteers or groups';
+
+-- Migration 16: Google Sheets Sync table
 create table public.google_sheets_sync (
   id uuid primary key default gen_random_uuid(),
   sheet_id text not null,
@@ -271,7 +304,21 @@ create trigger handle_google_sheets_sync_updated_at
   before update on public.google_sheets_sync
   for each row
   execute function extensions.moddatetime(updated_at);
--- Migration 16: Database functions and triggers
+-- Migration 16.1: WhatsApp auth state tables
+create table public.whatsapp_auth_creds (
+  id text primary key default 'singleton',
+  creds jsonb not null,
+  updated_at timestamptz not null default now()
+);
+
+create table public.whatsapp_auth_keys (
+  type text not null,
+  id text not null,
+  value jsonb not null,
+  primary key (type, id)
+);
+
+-- Migration 17: Database functions and triggers
 
 -- Function: calculate_duty_capacity
 -- Calculates volunteer capacity for a duty given a daig count
@@ -371,7 +418,7 @@ create trigger trg_update_drive_duty_assigned_count
   after insert or update or delete on public.assignments
   for each row
   execute function public.update_drive_duty_assigned_count();
--- Migration 17: Enable Row Level Security and create policies
+-- Migration 18: Enable Row Level Security and create policies
 
 -- Enable RLS on all tables
 alter table public.seasons enable row level security;
@@ -387,6 +434,8 @@ alter table public.whatsapp_sessions enable row level security;
 alter table public.app_config enable row level security;
 alter table public.reminder_schedules enable row level security;
 alter table public.google_sheets_sync enable row level security;
+alter table public.whatsapp_auth_creds enable row level security;
+alter table public.whatsapp_auth_keys enable row level security;
 
 -- Policies: Authenticated users can read all data
 -- Service role (admin) bypasses RLS entirely
@@ -456,6 +505,10 @@ create policy "Authenticated users can view whatsapp_sessions" on public.whatsap
 create policy "Authenticated users can insert whatsapp_sessions" on public.whatsapp_sessions for insert to authenticated with check (true);
 create policy "Authenticated users can update whatsapp_sessions" on public.whatsapp_sessions for update to authenticated using (true) with check (true);
 
+-- WhatsApp auth state: authenticated full access
+create policy "Authenticated users can manage whatsapp_auth_creds" on public.whatsapp_auth_creds for all to authenticated using (true) with check (true);
+create policy "Authenticated users can manage whatsapp_auth_keys" on public.whatsapp_auth_keys for all to authenticated using (true) with check (true);
+
 -- App Config: authenticated full access
 create policy "Authenticated users can view app_config" on public.app_config for select to authenticated using (true);
 create policy "Authenticated users can insert app_config" on public.app_config for insert to authenticated with check (true);
@@ -471,9 +524,9 @@ create policy "Authenticated users can delete reminder_schedules" on public.remi
 create policy "Authenticated users can view google_sheets_sync" on public.google_sheets_sync for select to authenticated using (true);
 create policy "Authenticated users can insert google_sheets_sync" on public.google_sheets_sync for insert to authenticated with check (true);
 create policy "Authenticated users can update google_sheets_sync" on public.google_sheets_sync for update to authenticated using (true) with check (true);
--- Migration 18: Enable Supabase Realtime on assignments table
+-- Migration 19: Enable Supabase Realtime on assignments table
 alter publication supabase_realtime add table public.assignments;
--- Migration 19: Seed default duties, capacity rules, and app_config entries
+-- Migration 20: Seed default duties, capacity rules, and app_config entries
 
 -- Default duties
 insert into public.duties (name, slug, display_order, gender_restriction, is_active) values

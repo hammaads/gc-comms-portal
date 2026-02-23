@@ -87,14 +87,17 @@ export class GoogleSheetsSync {
         // Insert volunteer
         const { data: volunteer } = await this.supabase
           .from("volunteers")
-          .insert({
-            phone: this.normalizePhone(data.phone),
-            name: data.name,
-            email: data.email || null,
-            gender: data.gender || "male",
-            organization: data.organization || null,
-            source: "google_form",
-          })
+          .upsert(
+            {
+              phone: this.normalizePhone(data.phone),
+              name: data.name.trim(),
+              email: data.email || null,
+              gender: data.gender || "male",
+              organization: data.organization || null,
+              source: "google_form",
+            },
+            { onConflict: "phone" },
+          )
           .select("id")
           .single();
 

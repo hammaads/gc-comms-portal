@@ -1,0 +1,2 @@
+-- Superseded by 20260220000000_restore_volunteers_phone_unique.sql.
+-- Intentionally left as a no-op to avoid applying phone+name identity logic.

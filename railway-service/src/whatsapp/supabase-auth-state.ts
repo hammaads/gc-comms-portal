@@ -7,7 +7,9 @@ import { whatsappLogger } from "../lib/logger";
  * Railway redeployments.
  */
 export async function useSupabaseAuthState(supabase: SupabaseClient) {
-  const { initAuthCreds, BufferJSON } = await import("baileys");
+  const { initAuthCreds, BufferJSON, makeCacheableSignalKeyStore } =
+    await import("baileys");
+  const pino = (await import("pino")).default;
 
   // --- Load or initialize creds ---
   const { data: credsRow } = await supabase
@@ -93,7 +95,14 @@ export async function useSupabaseAuthState(supabase: SupabaseClient) {
       );
   };
 
-  return { state: { creds, keys }, saveCreds };
+  // Wrap keys with in-memory cache to reduce Supabase round-trips
+  // for high-frequency Signal protocol operations (encrypt/decrypt).
+  const cachedKeys = makeCacheableSignalKeyStore(
+    keys,
+    pino({ level: "silent" }),
+  );
+
+  return { state: { creds, keys: cachedKeys }, saveCreds };
 }
 
 /** Clear all auth state from Supabase (used on disconnect) */

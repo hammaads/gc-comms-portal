@@ -1,8 +1,7 @@
 import * as React from "react";
 
-import { Loader2 } from "lucide-react";
-
 import { cn } from "@/lib/utils";
+import { Spinner } from "@/components/ui/spinner";
 
 type LoadingSize = "sm" | "md" | "lg";
 
@@ -35,8 +34,8 @@ export function LoadingState({
       )}
       {...props}
     >
-      <Loader2
-        className={cn("animate-spin", sizeClasses[size])}
+      <Spinner
+        className={cn(sizeClasses[size])}
         aria-hidden="true"
       />
       {text && (

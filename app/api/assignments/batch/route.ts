@@ -5,6 +5,7 @@ import {
   promoteWaitlist,
 } from "@/lib/assignment/auto-assign";
 import * as Sentry from "@sentry/nextjs";
+import { getPostHogClient } from "@/lib/posthog-server";
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
@@ -41,6 +42,18 @@ export async function POST(request: NextRequest) {
   const promotedResults = await promoteWaitlist(supabase as any, driveId);
 
   const results = [...batchResults, ...promotedResults];
+
+  const posthog = getPostHogClient();
+  posthog?.capture({
+    distinctId: assignedBy,
+    event: "batch_auto_assign_completed",
+    properties: {
+      drive_id: driveId,
+      total_assigned: results.length,
+      newly_assigned: batchResults.length,
+      promoted_from_waitlist: promotedResults.length,
+    },
+  });
 
   return NextResponse.json({ count: results.length, results });
 }

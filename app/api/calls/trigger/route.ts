@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import * as Sentry from "@sentry/nextjs";
+import { getPostHogClient } from "@/lib/posthog-server";
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
@@ -60,6 +61,18 @@ export async function POST(request: NextRequest) {
       // Railway service not available - calls logged but not initiated
     }
   }
+
+  const triggeredBy = (auth.claims.email as string) || "admin";
+  const posthog = getPostHogClient();
+  posthog?.capture({
+    distinctId: triggeredBy,
+    event: "ai_calls_triggered",
+    properties: {
+      drive_id: driveId,
+      volunteer_count: volunteerIds.length,
+      provider: aiConfig.provider,
+    },
+  });
 
   return NextResponse.json({
     success: true,

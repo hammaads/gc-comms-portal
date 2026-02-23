@@ -1,6 +1,7 @@
 "use client";
 
 import { updateDrive } from "../actions";
+import posthog from "posthog-js";
 import {
   Select,
   SelectContent,
@@ -79,6 +80,11 @@ export function DriveStatusControl({
     if (result.error) {
       toast.error(result.error);
     } else {
+      posthog.capture("drive_status_changed", {
+        drive_id: driveId,
+        from_status: currentStatus,
+        to_status: newStatus,
+      });
       toast.success(`Status updated to ${getStatusLabel(newStatus)}`);
       onStatusChange?.(newStatus);
     }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Script from "next/script";
 import { Navigation } from "lucide-react";
 
@@ -18,6 +18,17 @@ type LocationMapProps = {
 
 const KARACHI_CENTER = { lat: 24.8607, lng: 67.0011 };
 
+let mapsLibReady = false;
+
+async function ensureMapsLibraries() {
+  if (mapsLibReady) return;
+  await google.maps.importLibrary("maps");
+  await google.maps.importLibrary("marker");
+  await google.maps.importLibrary("geocoding");
+  await google.maps.importLibrary("places");
+  mapsLibReady = true;
+}
+
 export function LocationMap({
   lat,
   lng,
@@ -28,7 +39,7 @@ export function LocationMap({
   hideAddressText = false,
 }: LocationMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [scriptLoaded, setScriptLoaded] = useState(false);
+  const [ready, setReady] = useState(false);
   const [map, setMap] = useState<google.maps.Map | null>(null);
   const [marker, setMarker] = useState<google.maps.Marker | null>(null);
   const [resolvedAddress, setResolvedAddress] = useState<string | null>(null);
@@ -43,24 +54,29 @@ export function LocationMap({
     [hasLocation, lat, lng],
   );
 
-  // If the Google Maps script was already loaded elsewhere (e.g. another page),
-  // pick that up even if our <Script> onLoad doesn't fire again.
+  const handleScriptReady = useCallback(async () => {
+    try {
+      await ensureMapsLibraries();
+      setReady(true);
+    } catch {
+      // API not activated or network error — fail silently
+    }
+  }, []);
+
+  // Pick up script if already loaded by another component
   useEffect(() => {
     if (
-      !scriptLoaded &&
+      !ready &&
       typeof window !== "undefined" &&
-      (window as any).google &&
-      (window as any).google.maps
+      (window as any).google?.maps?.importLibrary
     ) {
-      setScriptLoaded(true);
+      handleScriptReady();
     }
-  }, [scriptLoaded]);
+  }, [ready, handleScriptReady]);
 
-  // Initialize map once the script is loaded
+  // Initialize map once libraries are imported
   useEffect(() => {
-    if (!scriptLoaded) return;
-    if (!containerRef.current) return;
-    if (map) return;
+    if (!ready || !containerRef.current || map) return;
 
     const m = new google.maps.Map(containerRef.current, {
       center,
@@ -71,7 +87,7 @@ export function LocationMap({
     });
 
     setMap(m);
-  }, [scriptLoaded, map, center]);
+  }, [ready, map, center]);
 
   // Keep center + marker in sync with props
   useEffect(() => {
@@ -102,7 +118,7 @@ export function LocationMap({
 
   // Reverse geocode to a human-readable address when we have a location
   useEffect(() => {
-    if (!map || !scriptLoaded || !hasLocation) {
+    if (!map || !ready || !hasLocation) {
       setResolvedAddress(null);
       return;
     }
@@ -115,7 +131,7 @@ export function LocationMap({
         setResolvedAddress(null);
       }
     });
-  }, [map, scriptLoaded, hasLocation, center.lat, center.lng]);
+  }, [map, ready, hasLocation, center.lat, center.lng]);
 
   // Allow clicking on the map to choose a location when not read-only
   useEffect(() => {
@@ -171,9 +187,9 @@ export function LocationMap({
     <>
       <Script
         id="google-maps-js"
-        src={`https://maps.googleapis.com/maps/api/js?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}&libraries=places&language=en`}
+        src={`https://maps.googleapis.com/maps/api/js?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}&loading=async&language=en`}
         strategy="afterInteractive"
-        onLoad={() => setScriptLoaded(true)}
+        onLoad={handleScriptReady}
       />
       <div className={className}>
         <div className="relative group/map">

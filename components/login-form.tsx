@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import posthog from "posthog-js";
 
 export function LoginForm({
   className,
@@ -38,8 +39,11 @@ export function LoginForm({
         password,
       });
       if (error) throw error;
+      posthog.identify(email, { email });
+      posthog.capture("admin_logged_in", { email });
       router.push("/drives");
     } catch (error: unknown) {
+      posthog.capture("admin_login_failed", { email });
       setError(error instanceof Error ? error.message : "An error occurred");
     } finally {
       setIsLoading(false);

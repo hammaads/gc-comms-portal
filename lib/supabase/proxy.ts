@@ -37,18 +37,19 @@ export async function updateSession(request: NextRequest) {
   const { data } = await supabase.auth.getClaims();
   const user = data?.claims;
 
-  const publicPaths = ["/", "/auth", "/join"];
+  const publicPaths = ["/", "/auth", "/join", "/volunteer", "/offline"];
   const isPublicPath = publicPaths.some(
     (p) =>
       request.nextUrl.pathname === p ||
       request.nextUrl.pathname.startsWith(p + "/"),
   );
 
-  // Allow public paths and API routes for public signup
+  // Allow public paths, public API routes, and webhook endpoints
   if (
     !user &&
     !isPublicPath &&
-    !request.nextUrl.pathname.startsWith("/api/public")
+    !request.nextUrl.pathname.startsWith("/api/public") &&
+    !request.nextUrl.pathname.startsWith("/api/webhooks")
   ) {
     const url = request.nextUrl.clone();
     url.pathname = "/auth/login";

@@ -62,6 +62,8 @@ import {
   ChevronsUpDown,
   AlertTriangle,
 } from "lucide-react";
+import { CountryCodePicker } from "@/components/ui/country-code-picker";
+import { normalizePhone } from "@/lib/utils";
 import { SkeletonForm } from "@/components/ui/skeleton-form";
 import { Skeleton } from "@/components/ui/skeleton";
 import QRCode from "qrcode";
@@ -141,6 +143,7 @@ export default function WhatsAppSettingsPage() {
 
   // Test message state
   const [testPhone, setTestPhone] = useState("");
+  const [testCountryCode, setTestCountryCode] = useState("+92");
   const [testMessage, setTestMessage] = useState("Hello! This is a test message from GC Comms Portal.");
   const [sendingTest, setSendingTest] = useState(false);
 
@@ -353,7 +356,7 @@ export default function WhatsAppSettingsPage() {
       const res = await fetch("/api/whatsapp/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: testPhone, message: testMessage }),
+        body: JSON.stringify({ phone: normalizePhone(testPhone, testCountryCode), message: testMessage }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -737,7 +740,7 @@ export default function WhatsAppSettingsPage() {
             <CardHeader>
               <CardTitle>Welcome Message</CardTitle>
               <CardDescription>
-                Sent as a DM to new volunteers after they sign up, along with a link to join the group
+                Sent as a DM to new volunteers after they sign up. If they can&apos;t be added to the group automatically, the invite link is sent as a separate follow-up message.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -745,13 +748,14 @@ export default function WhatsAppSettingsPage() {
                 <Label>Message Template</Label>
                 <Textarea
                   rows={5}
-                  value={config.welcome_dm_template || "Assalamu Alaikum! 🌙\n\nJazakAllah Khair for signing up as a volunteer for Grand Citizens Iftaar Drive.\n\nPlease join our volunteer group:\n{group_link}"}
+                  value={config.welcome_dm_template || ""}
+                  placeholder={"Assalamu Alaikum {name}!\n\nJazakAllah Khair for signing up as a volunteer for Grand Citizens Iftaar Drive.\n\n{assignments}"}
                   onChange={(e) =>
                     setConfig({ ...config, welcome_dm_template: e.target.value })
                   }
                 />
                 <p className="text-xs text-muted-foreground">
-                  Variables: {"{name}"}, {"{assignments}"}, {"{group_link}"}
+                  Variables: {"{name}"}, {"{assignments}"}
                 </p>
               </div>
             </CardContent>
@@ -921,11 +925,14 @@ export default function WhatsAppSettingsPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Phone Number</Label>
-                <Input
-                  placeholder="+923001234567"
-                  value={testPhone}
-                  onChange={(e) => setTestPhone(e.target.value)}
-                />
+                <div className="flex gap-2">
+                  <CountryCodePicker value={testCountryCode} onChange={setTestCountryCode} />
+                  <Input
+                    placeholder="3XX XXXXXXX"
+                    value={testPhone}
+                    onChange={(e) => setTestPhone(e.target.value)}
+                  />
+                </div>
               </div>
               <div className="space-y-2">
                 <Label>Message</Label>

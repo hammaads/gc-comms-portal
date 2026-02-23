@@ -109,29 +109,19 @@ app.get("/api/whatsapp/groups", authMiddleware, async (_req, res) => {
 });
 
 app.post("/api/whatsapp/group/add", authMiddleware, async (req, res) => {
-  const { phone, groupJid, name, assignments, welcomeTemplate } = req.body;
+  const { phone, groupJid } = req.body;
   try {
     const { added, status: addStatus } = await whatsapp.addToGroup(phone, groupJid);
-    const skipDm = welcomeTemplate === "__skip_dm__";
 
-    if (!added) {
-      // Get invite link regardless
-      const code = await whatsapp.getGroupInviteCode(groupJid);
-      const link = code ? `https://chat.whatsapp.com/${code}` : null;
-
-      if (!skipDm && link) {
-        // Direct call (not from registration) — send invite DM immediately
-        const inviteMsg = `Assalamu Alaikum!\n\nJazakAllah Khair for signing up as a volunteer for Grand Citizens Iftaar Drive.\n\nPlease join our volunteer group:\n${link}`;
-        await whatsapp.sendMessage(phone, inviteMsg);
-        res.json({ status: "invite_sent", link, addStatus });
-      } else {
-        // Registration flow — return link for caller to include in welcome DM
-        res.json({ status: "not_added", link, addStatus });
-      }
+    // 409 = already a member — treat as success, no invite link needed
+    if (added || addStatus === 409) {
+      res.json({ status: added ? "added" : "already_in_group" });
       return;
     }
 
-    res.json({ status: "added" });
+    const code = await whatsapp.getGroupInviteCode(groupJid);
+    const link = code ? `https://chat.whatsapp.com/${code}` : null;
+    res.json({ status: "not_added", link, addStatus });
   } catch (error: any) {
     Sentry.captureException(error);
     res.status(500).json({ error: error.message });

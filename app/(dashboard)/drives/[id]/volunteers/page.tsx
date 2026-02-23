@@ -34,6 +34,7 @@ import {
   RefreshCw,
   CheckCircle2,
   XCircle,
+  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -239,6 +240,37 @@ export default function VolunteersPage() {
     return messageSentVolunteerIds.has(a.volunteer_id);
   }
 
+  async function handleCancelAssignment(assignmentId: string) {
+    const assignment = assignments.find((a) => a.id === assignmentId);
+    const name = assignment?.volunteers?.name ?? "this volunteer";
+    toast(`Cancel ${name}'s assignment?`, {
+      action: {
+        label: "Cancel",
+        onClick: async () => {
+          const { error } = await supabase
+            .from("assignments")
+            .update({ status: "cancelled" })
+            .eq("id", assignmentId);
+          if (error) {
+            toast.error("Failed to cancel assignment");
+            return;
+          }
+          toast.success(`${name}'s assignment cancelled`);
+          try {
+            await fetch("/api/assignments/batch", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ driveId }),
+            });
+          } catch {
+            // Non-critical
+          }
+          loadData();
+        },
+      },
+    });
+  }
+
   function getMessageAcknowledged(a: Assignment): boolean {
     if (a.message_acknowledged_override !== null)
       return a.message_acknowledged_override;
@@ -262,11 +294,12 @@ export default function VolunteersPage() {
                 <TableHead>Msg Sent</TableHead>
                 <TableHead>Ack</TableHead>
                 <TableHead>Present</TableHead>
+                <TableHead className="w-10" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {Array.from({ length: 5 }).map((_, i) => (
-                <SkeletonTableRow key={i} columns={7} />
+                <SkeletonTableRow key={i} columns={8} />
               ))}
             </TableBody>
           </Table>
@@ -310,14 +343,16 @@ export default function VolunteersPage() {
               <TableHead>Message Sent</TableHead>
               <TableHead>Message Ack</TableHead>
               <TableHead>Present</TableHead>
+              <TableHead className="w-10" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {assignments.map((a) => {
               const { variant } = getStatusBadgeVariant(a.status);
+              const isCancelled = a.status === "cancelled";
               return (
-                <TableRow key={a.id}>
-                  <TableCell className="font-medium">
+                <TableRow key={a.id} className={cn("group", isCancelled && "opacity-50")}>
+                  <TableCell className={cn("font-medium", isCancelled && "line-through")}>
                     {a.volunteers?.name ?? "—"}
                   </TableCell>
                   <TableCell className="font-mono text-sm">
@@ -384,6 +419,18 @@ export default function VolunteersPage() {
                       </span>
                     ) : (
                       <span className="text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {!isCancelled && (
+                      <button
+                        type="button"
+                        onClick={() => handleCancelAssignment(a.id)}
+                        className="hidden items-center justify-center rounded p-1 text-muted-foreground hover:bg-red-500/10 hover:text-red-600 group-hover:flex"
+                        aria-label={`Cancel ${a.volunteers?.name ?? "volunteer"}`}
+                      >
+                        <XCircle className="h-4 w-4" />
+                      </button>
                     )}
                   </TableCell>
                 </TableRow>
