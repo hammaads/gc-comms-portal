@@ -265,8 +265,26 @@ export class WhatsAppManager {
       return;
     }
 
-    // Bug fix #5: Normalize phone for lookup — try with and without "+"
-    const rawPhone = remoteJid.split("@")[0];
+    // Resolve LID format (@lid) to actual phone number
+    let rawPhone: string;
+    if (remoteJid.endsWith("@lid")) {
+      try {
+        const phoneJid = await this.sock?.signalRepository?.lidMapping?.getPNForLID(remoteJid);
+        if (phoneJid) {
+          // phoneJid is like "14699272476:0@s.whatsapp.net" — extract phone before ":"
+          rawPhone = phoneJid.split(":")[0];
+          whatsappLogger.info({ remoteJid, resolvedPhone: rawPhone }, "Resolved LID to phone number");
+        } else {
+          whatsappLogger.warn({ remoteJid }, "Could not resolve LID to phone number — no mapping found");
+          return;
+        }
+      } catch (err) {
+        whatsappLogger.error({ err, remoteJid }, "Failed to resolve LID to phone number");
+        return;
+      }
+    } else {
+      rawPhone = remoteJid.split("@")[0];
+    }
     const phoneWithPlus = "+" + rawPhone;
 
     // Get WhatsApp config for keywords
