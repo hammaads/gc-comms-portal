@@ -225,7 +225,6 @@ async function handleEventCreatedOrUpdated(
     }
     // If still not found after retry, let the error handler below deal with it
   }
-  }
 
   if (driveError || !drive) {
     return NextResponse.json(
