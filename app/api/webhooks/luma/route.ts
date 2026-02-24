@@ -14,7 +14,7 @@ import {
   fetchSunsetTime,
 } from "@/app/(dashboard)/drives/actions";
 import type {
-  LumaWebhookEventPayload,
+  LumaEvent,
   LumaWebhookGuestPayload,
   LumaRegistrationAnswer,
 } from "@/lib/luma";
@@ -34,23 +34,30 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    console.log("[luma-webhook] raw payload:", JSON.stringify(body));
     const supabase = createAdminClient();
 
-    // Luma wraps webhook payloads in { type, data: { ... } }
+    // Luma wraps webhooks as { type, data }
+    // For event webhooks: data IS the event object (not { event: {...} })
+    // For guest webhooks: data has { guest, event } keys
     const webhookType = body.type as string | undefined;
     const data = body.data as Record<string, unknown> | undefined;
 
-    if (webhookType === "guest.registered" && data?.guest) {
-      return handleGuestRegistered(supabase, data as unknown as LumaWebhookGuestPayload);
-    } else if (
-      (webhookType === "event.created" || webhookType === "event.updated") &&
-      data?.event
-    ) {
-      return handleEventCreatedOrUpdated(supabase, data as unknown as LumaWebhookEventPayload);
+    if (!webhookType || !data) {
+      return NextResponse.json({ error: "Missing type or data" }, { status: 400 });
     }
 
-    return NextResponse.json({ error: "Unknown webhook type" }, { status: 400 });
+    if (webhookType === "guest.registered" && data.guest) {
+      return handleGuestRegistered(supabase, data as unknown as LumaWebhookGuestPayload);
+    } else if (
+      webhookType === "event.created" ||
+      webhookType === "event.updated" ||
+      webhookType === "calendar.event.added"
+    ) {
+      // data IS the event object directly
+      return handleEventCreatedOrUpdated(supabase, data as unknown as LumaEvent);
+    }
+
+    return NextResponse.json({ error: "Unknown webhook type", type: webhookType }, { status: 400 });
   } catch (err) {
     console.error("[luma-webhook]", err);
     return NextResponse.json(
@@ -64,9 +71,8 @@ export async function POST(request: NextRequest) {
 
 async function handleEventCreatedOrUpdated(
   supabase: ReturnType<typeof createAdminClient>,
-  payload: LumaWebhookEventPayload,
+  lumaEvent: LumaEvent,
 ) {
-  const lumaEvent = payload.event;
 
   // Get active season
   const { data: season } = await supabase
