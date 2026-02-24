@@ -14,6 +14,8 @@ import {
   fetchSunsetTime,
 } from "@/app/(dashboard)/drives/actions";
 import type {
+  LumaEvent,
+  LumaGuest,
   LumaWebhookEventPayload,
   LumaWebhookGuestPayload,
   LumaRegistrationAnswer,
@@ -22,6 +24,10 @@ import type {
 function safeTokenCompare(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 export async function POST(request: NextRequest) {
@@ -34,23 +40,61 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    console.log("[luma-webhook] raw payload:", JSON.stringify(body));
     const supabase = createAdminClient();
 
-    // Luma wraps webhook payloads in { type, data: { ... } }
-    const webhookType = body.type as string | undefined;
-    const data = body.data as Record<string, unknown> | undefined;
+    // Accept both wrapped ({ type, data }) and direct payloads.
+    const root = isRecord(body) ? body : {};
+    const data = isRecord(root.data) ? root.data : root;
+    const webhookType = typeof root.type === "string"
+      ? root.type
+      : typeof root.event_type === "string"
+        ? root.event_type
+        : undefined;
 
-    if (webhookType === "guest.registered" && data?.guest) {
+    const hasGuest = Boolean(data.guest);
+    const normalizedEvent = extractEvent(data);
+    const hasEvent = Boolean(normalizedEvent);
+    const hasHosts = Array.isArray(data.hosts);
+
+    console.log(
+      "[luma-webhook] parsed payload:",
+      JSON.stringify({
+        webhookType: webhookType ?? null,
+        rootKeys: Object.keys(root),
+        dataKeys: Object.keys(data),
+        hasGuest,
+        hasEvent,
+        hasHosts,
+      }),
+    );
+
+    const isGuestPayload = webhookType === "guest.registered" || (hasGuest && hasEvent);
+    const isEventPayload = (
+      webhookType === "event.created" ||
+      webhookType === "event.updated" ||
+      webhookType === "calendar.event.created" ||
+      webhookType === "calendar.event.updated" ||
+      (hasEvent && !hasGuest)
+    );
+
+    if (isGuestPayload) {
       return handleGuestRegistered(supabase, data as unknown as LumaWebhookGuestPayload);
-    } else if (
-      (webhookType === "event.created" || webhookType === "event.updated") &&
-      data?.event
-    ) {
+    }
+
+    if (isEventPayload) {
       return handleEventCreatedOrUpdated(supabase, data as unknown as LumaWebhookEventPayload);
     }
 
-    return NextResponse.json({ error: "Unknown webhook type" }, { status: 400 });
+    // Acknowledge unknown webhooks to avoid retry storms while we inspect logs.
+    console.warn(
+      "[luma-webhook] Ignoring unknown webhook payload",
+      JSON.stringify({
+        webhookType: webhookType ?? null,
+        rootKeys: Object.keys(root),
+        dataKeys: Object.keys(data),
+      }),
+    );
+    return NextResponse.json({ action: "ignored", reason: "unknown_webhook_type" });
   } catch (err) {
     console.error("[luma-webhook]", err);
     return NextResponse.json(
@@ -66,7 +110,13 @@ async function handleEventCreatedOrUpdated(
   supabase: ReturnType<typeof createAdminClient>,
   payload: LumaWebhookEventPayload,
 ) {
-  const lumaEvent = payload.event;
+  const lumaEvent = extractEvent(payload);
+  if (!lumaEvent) {
+    return NextResponse.json(
+      { error: "Invalid event payload shape" },
+      { status: 422 },
+    );
+  }
 
   // Get active season
   const { data: season } = await supabase
@@ -152,6 +202,27 @@ async function handleEventCreatedOrUpdated(
     .select("id")
     .single();
 
+  if (driveError?.code === "23505") {
+    // Concurrent webhook delivery may have inserted the same luma_event_id.
+    const existing = await findDriveByLumaEvent(supabase, lumaEvent.id);
+    if (existing) {
+      await supabase
+        .from("drives")
+        .update({
+          name: lumaEvent.name,
+          drive_date: driveDate,
+          location_name: lumaEvent.name,
+          location_address: locationAddress,
+          location_lat: lat,
+          location_lng: lng,
+          sunset_time: sunsetTime,
+          sunset_source: sunsetTime ? "aladhan" : null,
+        })
+        .eq("id", existing.id);
+      return NextResponse.json({ action: "updated", driveId: existing.id });
+    }
+  }
+
   if (driveError || !drive) {
     return NextResponse.json(
       { error: driveError?.message || "Failed to create drive" },
@@ -172,7 +243,14 @@ async function handleGuestRegistered(
   supabase: ReturnType<typeof createAdminClient>,
   payload: LumaWebhookGuestPayload,
 ) {
-  const { guest, event: lumaEvent } = payload;
+  const normalized = extractGuestRegistration(payload);
+  if (!normalized) {
+    return NextResponse.json(
+      { error: "Invalid guest registration payload shape" },
+      { status: 422 },
+    );
+  }
+  const { guest, event: lumaEvent } = normalized;
 
   // Find drive by luma_event_id
   let drive = await findDriveByLumaEvent(supabase, lumaEvent.id);
@@ -217,16 +295,28 @@ async function handleGuestRegistered(
       .select("id")
       .single();
 
-    if (driveError || !newDrive) {
+    if (driveError?.code === "23505") {
+      const existing = await findDriveByLumaEvent(supabase, lumaEvent.id);
+      if (existing) {
+        drive = existing;
+      }
+    } else if (driveError || !newDrive) {
       return NextResponse.json(
         { error: driveError?.message || "Failed to create drive" },
         { status: 500 },
       );
+    } else {
+      await createDriveDuties(supabase, newDrive.id, defaultDaigCount);
+      await createDefaultReminders(supabase, newDrive.id, driveDate, sunsetTime);
+      drive = newDrive;
     }
+  }
 
-    await createDriveDuties(supabase, newDrive.id, defaultDaigCount);
-    await createDefaultReminders(supabase, newDrive.id, driveDate, sunsetTime);
-    drive = newDrive;
+  if (!drive) {
+    return NextResponse.json(
+      { error: "Failed to resolve drive for event" },
+      { status: 500 },
+    );
   }
 
   // Idempotency: check if this guest was already processed
@@ -315,4 +405,53 @@ function getAnswerValue(
   if (!answer) return null;
   const val = answer.value ?? answer.answer;
   return typeof val === "string" ? val : null;
+}
+
+function extractEvent(payload: unknown): LumaEvent | null {
+  if (!isRecord(payload)) return null;
+
+  const candidate = isRecord(payload.event)
+    ? payload.event
+    : payload;
+
+  if (
+    typeof candidate.id !== "string" ||
+    typeof candidate.start_at !== "string" ||
+    typeof candidate.name !== "string"
+  ) {
+    return null;
+  }
+
+  return candidate as unknown as LumaEvent;
+}
+
+function extractGuestRegistration(
+  payload: unknown,
+): { guest: LumaGuest; event: LumaWebhookGuestPayload["event"] } | null {
+  if (!isRecord(payload)) return null;
+
+  const guestCandidate = isRecord(payload.guest)
+    ? payload.guest
+    : payload;
+
+  const eventCandidate = isRecord(payload.event)
+    ? payload.event
+    : isRecord(guestCandidate.event)
+      ? guestCandidate.event
+      : null;
+
+  if (
+    !eventCandidate ||
+    typeof eventCandidate.id !== "string" ||
+    typeof eventCandidate.start_at !== "string" ||
+    typeof eventCandidate.name !== "string" ||
+    typeof guestCandidate.id !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    guest: guestCandidate as unknown as LumaGuest,
+    event: eventCandidate as LumaWebhookGuestPayload["event"],
+  };
 }
