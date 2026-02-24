@@ -34,23 +34,18 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    console.log("[luma-webhook] raw payload:", JSON.stringify(body));
     const supabase = createAdminClient();
 
-    // Luma wraps webhook payloads in { type, data: { ... } }
-    const webhookType = body.type as string | undefined;
-    const data = body.data as Record<string, unknown> | undefined;
-
-    if (webhookType === "guest.registered" && data?.guest) {
-      return handleGuestRegistered(supabase, data as unknown as LumaWebhookGuestPayload);
-    } else if (
-      (webhookType === "event.created" || webhookType === "event.updated") &&
-      data?.event
-    ) {
-      return handleEventCreatedOrUpdated(supabase, data as unknown as LumaWebhookEventPayload);
+    // Luma sends flat payloads — detect type by shape:
+    //   guest registration: { event, guest, hosts }
+    //   event created/updated: { event, hosts }
+    if (body.guest && body.event) {
+      return handleGuestRegistered(supabase, body as LumaWebhookGuestPayload);
+    } else if (body.event) {
+      return handleEventCreatedOrUpdated(supabase, body as LumaWebhookEventPayload);
     }
 
-    return NextResponse.json({ error: "Unknown webhook type" }, { status: 400 });
+    return NextResponse.json({ error: "Unrecognized payload shape" }, { status: 400 });
   } catch (err) {
     console.error("[luma-webhook]", err);
     return NextResponse.json(
