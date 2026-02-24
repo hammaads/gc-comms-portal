@@ -427,7 +427,7 @@ function extractEvent(payload: unknown): LumaEvent | null {
 
 function extractGuestRegistration(
   payload: unknown,
-): { guest: LumaGuest; event: LumaWebhookGuestPayload["event"] } | null {
+): { guest: LumaGuest; event: LumaEvent } | null {
   if (!isRecord(payload)) return null;
 
   const guestCandidate = isRecord(payload.guest)
@@ -452,6 +452,6 @@ function extractGuestRegistration(
 
   return {
     guest: guestCandidate as unknown as LumaGuest,
-    event: eventCandidate as LumaWebhookGuestPayload["event"],
+    event: eventCandidate as unknown as LumaEvent,
   };
 }
