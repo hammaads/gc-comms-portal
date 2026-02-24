@@ -77,19 +77,29 @@ export interface LumaHost {
   avatar_url: string;
 }
 
-export interface LumaWebhookEventPayload {
-  event: LumaEvent;
-  hosts: LumaHost[];
-}
+export type LumaWebhookEventPayload =
+  | LumaEvent
+  | {
+      event: LumaEvent;
+      hosts?: LumaHost[];
+    };
 
 export interface LumaWebhookGuestPayload {
-  guest: LumaGuest;
-  event: {
+  guest?: LumaGuest;
+  event?: {
     id: string;
     name: string;
     start_at: string;
     end_at: string;
   };
+  id?: string;
+  user_id?: string;
+  user_email?: string;
+  user_name?: string | null;
+  user_first_name?: string | null;
+  user_last_name?: string | null;
+  phone_number?: string | null;
+  registration_answers?: LumaRegistrationAnswer[] | null;
 }
 
 // --- API Functions ---
