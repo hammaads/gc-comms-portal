@@ -371,22 +371,24 @@ export function setupCronJobs(
         .limit(10);
 
       // Recover stale "sending" messages (stuck >5 min, likely from a crashed process)
+      // Uses sent_at as the claim timestamp (set when transitioning to "sending")
       const staleThreshold = new Date(Date.now() - 5 * 60 * 1000).toISOString();
       await supabase
         .from("scheduled_messages")
         .update({ status: "failed" })
         .eq("status", "sending")
-        .lt("scheduled_at", staleThreshold);
+        .lt("sent_at", staleThreshold);
 
       const messages = [...(pending || []), ...(retryable || [])];
       if (messages.length === 0) return;
 
       for (const msg of messages) {
         // Atomically claim the message to prevent duplicate sends across cron ticks
+        // Sets sent_at as claim timestamp for stale recovery detection
         const prevStatus = msg.status; // "pending" or "failed"
         const { data: claimed } = await supabase
           .from("scheduled_messages")
-          .update({ status: "sending" })
+          .update({ status: "sending", sent_at: new Date().toISOString() })
           .eq("id", msg.id)
           .eq("status", prevStatus)
           .select("id");
