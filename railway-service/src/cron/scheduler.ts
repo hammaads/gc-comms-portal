@@ -47,6 +47,16 @@ export function setupCronJobs(
       if (!pendingReminders || pendingReminders.length === 0) return;
 
       for (const reminder of pendingReminders) {
+        // Atomically claim the reminder to prevent duplicate sends across cron ticks
+        const { data: claimed } = await supabase
+          .from("reminder_schedules")
+          .update({ is_sent: true, sent_at: new Date().toISOString() })
+          .eq("id", reminder.id)
+          .eq("is_sent", false)
+          .select("id");
+
+        if (!claimed || claimed.length === 0) continue; // Already claimed by another tick
+
         const drive = reminder.drives as any;
         const { data: assignments } = await supabase
           .from("assignments")
@@ -91,12 +101,12 @@ export function setupCronJobs(
           }
         }
 
-        if (successCount > 0) {
+        // If all sends failed, release the claim so next cycle can retry
+        if (successCount === 0) {
           await supabase
             .from("reminder_schedules")
-            .update({ is_sent: true, sent_at: new Date().toISOString() })
+            .update({ is_sent: false, sent_at: null })
             .eq("id", reminder.id);
-        } else {
           cronLogger.error(
             { reminderId: reminder.id, driveId: reminder.drive_id },
             "All reminder sends failed — will retry next cycle",
@@ -360,10 +370,29 @@ export function setupCronJobs(
         .order("scheduled_at")
         .limit(10);
 
+      // Recover stale "sending" messages (stuck >5 min, likely from a crashed process)
+      const staleThreshold = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      await supabase
+        .from("scheduled_messages")
+        .update({ status: "failed" })
+        .eq("status", "sending")
+        .lt("scheduled_at", staleThreshold);
+
       const messages = [...(pending || []), ...(retryable || [])];
       if (messages.length === 0) return;
 
       for (const msg of messages) {
+        // Atomically claim the message to prevent duplicate sends across cron ticks
+        const prevStatus = msg.status; // "pending" or "failed"
+        const { data: claimed } = await supabase
+          .from("scheduled_messages")
+          .update({ status: "sending" })
+          .eq("id", msg.id)
+          .eq("status", prevStatus)
+          .select("id");
+
+        if (!claimed || claimed.length === 0) continue; // Already claimed by another tick
+
         try {
           if (msg.group_jid) {
             // Send to group
