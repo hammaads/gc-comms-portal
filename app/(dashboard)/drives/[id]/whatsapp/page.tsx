@@ -34,7 +34,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { toast } from "sonner";
-import { formatPhone, formatTime, cn } from "@/lib/utils";
+import { formatPhone, cn } from "@/lib/utils";
 import {
   Loader2,
   Trash2,
@@ -942,6 +942,7 @@ export default function WhatsAppPage() {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [driveInfo, setDriveInfo] = useState<DriveInfo | null>(null);
   const [welcomeMap, setWelcomeMap] = useState<Record<string, { status: string; error: string | null }>>({});
+  const [lastInboundMap, setLastInboundMap] = useState<Record<string, string>>({});
 
   const [selectedVolunteer, setSelectedVolunteer] = useState<{
     id: string;
@@ -990,6 +991,15 @@ export default function WhatsAppPage() {
       const assignData = assignRes.data as unknown as Assignment[];
       setAssignments(assignData);
       setDriveInfo(driveRes.data as DriveInfo);
+
+      // Build map of latest inbound message per volunteer
+      const inboundMap: Record<string, string> = {};
+      for (const log of (commRes.data ?? []) as CommLog[]) {
+        if (log.direction === "inbound" && log.content) {
+          inboundMap[log.volunteer_id] = log.content;
+        }
+      }
+      setLastInboundMap(inboundMap);
 
       // Fetch welcome message status for these volunteers
       const volIds = [...new Set(assignData.map((a) => a.volunteer_id))];
@@ -1054,25 +1064,8 @@ export default function WhatsAppPage() {
     failed: 0,
   };
 
-  function interpolateTemplate(
-    tpl: string,
-    assignment: Assignment,
-  ): string {
-    if (!driveInfo) return tpl;
-    return tpl
-      .replaceAll("{name}", assignment.volunteers?.name ?? "")
-      .replaceAll("{duty}", assignment.duties?.name ?? "")
-      .replaceAll("{drive_name}", driveInfo.name)
-      .replaceAll("{location}", driveInfo.location_name ?? "")
-      .replaceAll("{sunset_time}", formatTime(driveInfo.sunset_time));
-  }
-
   function getMessagePreview(assignment: Assignment): string {
-    const firstReminder = reminders[0];
-    if (firstReminder?.message_template) {
-      return interpolateTemplate(firstReminder.message_template, assignment);
-    }
-    return "";
+    return lastInboundMap[assignment.volunteer_id] ?? "";
   }
 
   async function handleAddReminder() {
@@ -1264,7 +1257,7 @@ export default function WhatsAppPage() {
                   <TableHead className="hidden md:table-cell">Signup</TableHead>
                   <TableHead>Reminder</TableHead>
                   <TableHead className="hidden sm:table-cell">
-                    Message
+                    Last Reply
                   </TableHead>
                 </TableRow>
               </TableHeader>
