@@ -992,25 +992,34 @@ export default function WhatsAppPage() {
       setAssignments(assignData);
       setDriveInfo(driveRes.data as DriveInfo);
 
-      // Build map of latest inbound message per volunteer
-      const inboundMap: Record<string, string> = {};
-      for (const log of (commRes.data ?? []) as CommLog[]) {
-        if (log.direction === "inbound" && log.content) {
-          inboundMap[log.volunteer_id] = log.content;
-        }
-      }
-      setLastInboundMap(inboundMap);
-
-      // Fetch welcome message status for these volunteers
+      // Fetch welcome message status and latest inbound messages for these volunteers
       const volIds = [...new Set(assignData.map((a) => a.volunteer_id))];
       if (volIds.length > 0) {
-        const { data: welcomeRows } = await supabase
-          .from("scheduled_messages")
-          .select("volunteer_id, status, error")
-          .in("volunteer_id", volIds)
-          .is("drive_id", null)
-          .eq("channel", "whatsapp")
-          .order("created_at");
+        const [{ data: welcomeRows }, { data: inboundRows }] = await Promise.all([
+          supabase
+            .from("scheduled_messages")
+            .select("volunteer_id, status, error")
+            .in("volunteer_id", volIds)
+            .is("drive_id", null)
+            .eq("channel", "whatsapp")
+            .order("created_at"),
+          supabase
+            .from("communication_log")
+            .select("volunteer_id, content, created_at")
+            .in("volunteer_id", volIds)
+            .eq("channel", "whatsapp")
+            .eq("direction", "inbound")
+            .order("created_at"),
+        ]);
+
+        // Build map of latest inbound message per volunteer
+        const inboundMap: Record<string, string> = {};
+        for (const row of inboundRows ?? []) {
+          if (row.volunteer_id && row.content) {
+            inboundMap[row.volunteer_id] = row.content;
+          }
+        }
+        setLastInboundMap(inboundMap);
         // Build map — last entry per volunteer wins (most recent status)
         const map: Record<string, { status: string; error: string | null }> = {};
         for (const row of welcomeRows ?? []) {
@@ -1021,6 +1030,7 @@ export default function WhatsAppPage() {
         setWelcomeMap(map);
       } else {
         setWelcomeMap({});
+        setLastInboundMap({});
       }
 
       setError(null);
