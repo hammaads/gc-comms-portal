@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { validateCloudToken } from "@/lib/whatsapp/cloud-client";
 import * as Sentry from "@sentry/nextjs";
 
 export async function GET() {
@@ -9,25 +10,17 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const railwayUrl = process.env.RAILWAY_SERVICE_URL;
-  const railwaySecret = process.env.RAILWAY_API_SECRET;
-  if (!railwayUrl || !railwaySecret) {
-    return NextResponse.json(
-      { error: "Railway service not configured" },
-      { status: 500 },
-    );
-  }
-
   try {
-    const res = await fetch(`${railwayUrl}/health`, {
-      headers: { Authorization: `Bearer ${railwaySecret}` },
+    const { displayPhoneNumber } = await validateCloudToken();
+    return NextResponse.json({
+      status: "connected",
+      whatsapp: "connected",
+      phoneNumber: displayPhoneNumber,
     });
-    const data = await res.json();
-    return NextResponse.json(data, { status: res.status });
-  } catch (err) {
+  } catch (err: any) {
     Sentry.captureException(err);
     return NextResponse.json(
-      { error: "Railway service unreachable", status: "offline" },
+      { status: "error", whatsapp: "disconnected", error: err.message },
       { status: 502 },
     );
   }
