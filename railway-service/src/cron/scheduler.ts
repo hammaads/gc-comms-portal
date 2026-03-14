@@ -626,5 +626,42 @@ export function setupCronJobs(
     });
   }).start();
 
+  // ── Next.js WhatsApp cron routes ─────────────────────────────────────────
+  // These hit the Vercel app so it can run on the Hobby plan (no built-in crons).
+  // Required env vars: NEXT_APP_URL, CRON_SECRET
+  const nextAppUrl = process.env.NEXT_APP_URL;
+  const cronSecret = process.env.CRON_SECRET;
+
+  if (nextAppUrl && cronSecret) {
+    const callNextCron = (path: string) =>
+      fetch(`${nextAppUrl}${path}`, {
+        headers: { Authorization: `Bearer ${cronSecret}` },
+      })
+        .then((res) => {
+          if (!res.ok) cronLogger.warn({ path, status: res.status }, "Next.js cron returned non-2xx");
+        })
+        .catch((err) => cronLogger.error({ err, path }, "Next.js cron call failed"));
+
+    // send-reminders — every minute
+    new CronJob("* * * * *", () => {
+      callNextCron("/api/cron/send-reminders");
+    }).start();
+
+    // scheduled-messages — every minute
+    new CronJob("* * * * *", () => {
+      callNextCron("/api/cron/scheduled-messages");
+    }).start();
+
+    // auto-reminders — every 30 minutes
+    new CronJob("*/30 * * * *", () => {
+      callNextCron("/api/cron/auto-reminders");
+    }).start();
+
+    cronLogger.info({ nextAppUrl }, "Next.js WhatsApp cron callers scheduled");
+  } else {
+    cronLogger.warn("NEXT_APP_URL or CRON_SECRET not set — Next.js WhatsApp crons will NOT run from Railway");
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   cronLogger.info("All cron jobs scheduled");
 }

@@ -1,16 +1,1 @@
-{
-  "crons": [
-    {
-      "path": "/api/cron/send-reminders",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/scheduled-messages",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/auto-reminders",
-      "schedule": "*/30 * * * *"
-    }
-  ]
-}
+{}
